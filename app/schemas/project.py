@@ -31,3 +31,8 @@ class ProjectMemberOut(BaseModel):
     joined_at: datetime
     class Config:
         from_attributes = True
+
+class ProjectStats(BaseModel):
+    total_tasks: int
+    tasks_by_status: dict[str, int]
+    overdue_tasks: int
