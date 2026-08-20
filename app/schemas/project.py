@@ -32,6 +32,14 @@ class ProjectMemberOut(BaseModel):
     class Config:
         from_attributes = True
 
+class ProjectUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    status: Optional[ProjectStatus] = None
+
+class ProjectMemberRoleUpdate(BaseModel):
+    project_role: ProjectRole
+
 class ProjectStats(BaseModel):
     total_tasks: int
     tasks_by_status: dict[str, int]

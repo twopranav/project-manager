@@ -204,6 +204,170 @@ try {
     Write-Host "  By status: $($stats.tasks_by_status | ConvertTo-Json -Compress)"
     Write-Host "  Overdue: $($stats.overdue_tasks)"
 
+    # ----------------------------------------------------------------------
+    Section "15. Register a third user and add as contributor (future manager)"
+    # ----------------------------------------------------------------------
+    $managerEmail = "manager_$(Get-Random)@test.com"
+    $managerUser = Invoke-RestMethod -Method Post -Uri "$Base/auth/register" -ContentType "application/json" -Body (@{
+        name = "Future Manager"; email = $managerEmail; password = $password
+    } | ConvertTo-Json)
+
+    $managerLogin = Invoke-RestMethod -Method Post -Uri "$Base/auth/login" -ContentType "application/x-www-form-urlencoded" -Body @{
+        username = $managerEmail; password = $password
+    }
+    $managerToken = $managerLogin.access_token
+    $managerHeaders = @{ Authorization = "Bearer $managerToken" }
+
+    $lookedUpManager = Invoke-RestMethod -Method Get -Uri "$Base/users/lookup?email=$managerEmail" -Headers $ownerHeaders
+    Invoke-RestMethod -Method Post -Uri "$Base/projects/$projectId/members" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
+        user_id = $lookedUpManager.id; project_role = "contributor"
+    } | ConvertTo-Json) | Out-Null
+    Write-Host "  Registered and added future manager as contributor (id: $($lookedUpManager.id))"
+
+    # ----------------------------------------------------------------------
+    Section "16. Contributor cannot change anyone's project role"
+    # ----------------------------------------------------------------------
+    ShouldFail "Contributor PATCHing another member's role" {
+        Invoke-RestMethod -Method Patch -Uri "$Base/projects/$projectId/members/$($lookedUpManager.id)" -Headers $memberHeaders -ContentType "application/json" -Body (@{
+            project_role = "manager"
+        } | ConvertTo-Json)
+    }
+
+    # ----------------------------------------------------------------------
+    Section "17. Admin (project creator) promotes the third user to manager"
+    # ----------------------------------------------------------------------
+    $promoted = Invoke-RestMethod -Method Patch -Uri "$Base/projects/$projectId/members/$($lookedUpManager.id)" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
+        project_role = "manager"
+    } | ConvertTo-Json)
+    Write-Host "  Promoted to: $($promoted.project_role)"
+
+    # ----------------------------------------------------------------------
+    Section "18. Manager cannot grant the admin role"
+    # ----------------------------------------------------------------------
+    ShouldFail "Manager promoting a member to admin" {
+        Invoke-RestMethod -Method Patch -Uri "$Base/projects/$projectId/members/$($lookedUp.id)" -Headers $managerHeaders -ContentType "application/json" -Body (@{
+            project_role = "admin"
+        } | ConvertTo-Json)
+    }
+
+    # ----------------------------------------------------------------------
+    Section "19. Manager CAN change a contributor to viewer and back"
+    # ----------------------------------------------------------------------
+    $demoted = Invoke-RestMethod -Method Patch -Uri "$Base/projects/$projectId/members/$($lookedUp.id)" -Headers $managerHeaders -ContentType "application/json" -Body (@{
+        project_role = "viewer"
+    } | ConvertTo-Json)
+    Write-Host "  Member demoted to: $($demoted.project_role)"
+
+    ShouldFail "Viewer creating a task" {
+        Invoke-RestMethod -Method Post -Uri "$Base/tasks/" -Headers $memberHeaders -ContentType "application/json" -Body (@{
+            project_id = $projectId; title = "Should not be created"
+        } | ConvertTo-Json)
+    }
+
+    $restored = Invoke-RestMethod -Method Patch -Uri "$Base/projects/$projectId/members/$($lookedUp.id)" -Headers $managerHeaders -ContentType "application/json" -Body (@{
+        project_role = "contributor"
+    } | ConvertTo-Json)
+    Write-Host "  Member restored to: $($restored.project_role)"
+
+    # ----------------------------------------------------------------------
+    Section "20. List project members"
+    # ----------------------------------------------------------------------
+    $members = Invoke-RestMethod -Method Get -Uri "$Base/projects/$projectId/members" -Headers $ownerHeaders
+    Write-Host "  Project has $($members.Count) member(s):"
+    foreach ($m in $members) { Write-Host "    - $($m.user_id): $($m.project_role)" }
+
+    # ----------------------------------------------------------------------
+    Section "21. Contributor can update task status but not other fields"
+    # ----------------------------------------------------------------------
+    $extraTask = Invoke-RestMethod -Method Post -Uri "$Base/tasks/" -Headers $memberHeaders -ContentType "application/json" -Body (@{
+        project_id = $projectId; title = "Write tests"
+    } | ConvertTo-Json)
+    $extraTaskId = $extraTask.id
+    Write-Host "  Contributor created task: $($extraTask.title) (id: $extraTaskId)"
+
+    ShouldFail "Contributor editing task title" {
+        Invoke-RestMethod -Method Patch -Uri "$Base/tasks/$extraTaskId" -Headers $memberHeaders -ContentType "application/json" -Body (@{
+            title = "Hijacked title"
+        } | ConvertTo-Json)
+    }
+
+    $statusOnly = Invoke-RestMethod -Method Patch -Uri "$Base/tasks/$extraTaskId" -Headers $memberHeaders -ContentType "application/json" -Body (@{
+        status = "in_progress"
+    } | ConvertTo-Json)
+    Write-Host "  Contributor set status-only update -> $($statusOnly.status)"
+
+    $managerEdit = Invoke-RestMethod -Method Patch -Uri "$Base/tasks/$extraTaskId" -Headers $managerHeaders -ContentType "application/json" -Body (@{
+        title = "Write unit tests"
+    } | ConvertTo-Json)
+    Write-Host "  Manager full-field edit -> '$($managerEdit.title)'"
+
+    # ----------------------------------------------------------------------
+    Section "22. Assigned-to-me and task delete (contributor, basic perms)"
+    # ----------------------------------------------------------------------
+    Invoke-RestMethod -Method Post -Uri "$Base/tasks/$extraTaskId/assign?user_id=$($lookedUp.id)" -Headers $memberHeaders | Out-Null
+    Write-Host "  Contributor self-assigned to their task"
+
+    $myTasks = Invoke-RestMethod -Method Get -Uri "$Base/tasks/assigned/me" -Headers $memberHeaders
+    Write-Host "  Member has $($myTasks.Count) task(s) assigned to them"
+
+    Invoke-RestMethod -Method Delete -Uri "$Base/tasks/$extraTaskId" -Headers $memberHeaders
+    Write-Host "  Contributor deleted their own task OK"
+
+    ShouldFail "Fetching a deleted task" {
+        Invoke-RestMethod -Method Get -Uri "$Base/tasks/$extraTaskId" -Headers $ownerHeaders
+    }
+
+    # ----------------------------------------------------------------------
+    Section "23. Last-admin lockout: sole admin can't demote or remove themselves"
+    # ----------------------------------------------------------------------
+    ShouldFail "Sole admin demoting themselves" {
+        Invoke-RestMethod -Method Patch -Uri "$Base/projects/$projectId/members/$($owner.id)" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
+            project_role = "manager"
+        } | ConvertTo-Json)
+    }
+
+    ShouldFail "Sole admin removing themselves" {
+        Invoke-RestMethod -Method Delete -Uri "$Base/projects/$projectId/members/$($owner.id)" -Headers $ownerHeaders
+    }
+
+    # ----------------------------------------------------------------------
+    Section "24. Admin removes the manager from the project"
+    # ----------------------------------------------------------------------
+    Invoke-RestMethod -Method Delete -Uri "$Base/projects/$projectId/members/$($lookedUpManager.id)" -Headers $ownerHeaders
+    Write-Host "  Manager removed from project OK"
+
+    ShouldFail "Removing a member who's already gone" {
+        Invoke-RestMethod -Method Delete -Uri "$Base/projects/$projectId/members/$($lookedUpManager.id)" -Headers $ownerHeaders
+    }
+
+    # ----------------------------------------------------------------------
+    Section "25. Project update / delete lifecycle"
+    # ----------------------------------------------------------------------
+    ShouldFail "Contributor updating the project" {
+        Invoke-RestMethod -Method Patch -Uri "$Base/projects/$projectId" -Headers $memberHeaders -ContentType "application/json" -Body (@{
+            name = "Should not stick"
+        } | ConvertTo-Json)
+    }
+
+    $renamed = Invoke-RestMethod -Method Patch -Uri "$Base/projects/$projectId" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
+        name = "Launch Website (v2)"; status = "active"
+    } | ConvertTo-Json)
+    Write-Host "  Admin renamed project -> $($renamed.name)"
+
+    ShouldFail "Deleting a project that still has tasks" {
+        Invoke-RestMethod -Method Delete -Uri "$Base/projects/$projectId" -Headers $ownerHeaders
+    }
+
+    Invoke-RestMethod -Method Delete -Uri "$Base/tasks/$taskId" -Headers $ownerHeaders
+    Write-Host "  Deleted remaining task so the project can be cleaned up"
+
+    Invoke-RestMethod -Method Delete -Uri "$Base/projects/$projectId" -Headers $ownerHeaders
+    Write-Host "  Project deleted OK"
+
+    ShouldFail "Fetching a deleted project" {
+        Invoke-RestMethod -Method Get -Uri "$Base/projects/$projectId" -Headers $ownerHeaders
+    }
+
 } catch {
     # Anything that was expected to succeed but threw lands here. The run
     # stops here (later steps likely depend on state we never got), but the
