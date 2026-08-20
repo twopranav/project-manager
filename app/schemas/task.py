@@ -28,3 +28,14 @@ class TaskOut(TaskBase):
     updated_at: datetime
     class Config:
         from_attributes = True
+
+
+class TaskStatusHistoryOut(BaseModel):
+    id: str
+    task_id: str
+    changed_by: str
+    old_status: Optional[TaskStatus]
+    new_status: TaskStatus
+    changed_at: datetime
+    class Config:
+        from_attributes = True

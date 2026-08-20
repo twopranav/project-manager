@@ -1,6 +1,6 @@
 from pydantic import BaseModel
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 class CommentCreate(BaseModel):
     task_id: str
@@ -20,3 +20,8 @@ class CommentOut(BaseModel):
     updated_at: datetime
     class Config:
         from_attributes = True
+
+class CommentTreeOut(CommentOut):
+    replies: List["CommentTreeOut"] = []
+
+CommentTreeOut.model_rebuild()

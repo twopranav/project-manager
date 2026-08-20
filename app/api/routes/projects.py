@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from datetime import date
 from app.db.session import get_db
-from app.models.project import Project
+from app.models.project import Project, ProjectStatus
 from app.models.project_member import ProjectMember, ProjectRole
 from app.models.task import Task, TaskStatus
 from app.models.user import User, GlobalRole
@@ -76,19 +76,29 @@ def create_project(
 def list_my_projects(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    status_: Optional[ProjectStatus] = Query(default=None, alias="status"),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ):
     # Only the site-wide (global) admin bypasses membership. A project-level
     # "manager" role only ever applies to projects they're actually a member
     # of — no global reach, per spec.
     if current_user.global_role == GlobalRole.admin:
-        return db.query(Project).all()
+        query = db.query(Project)
+    else:
+        query = (
+            db.query(Project)
+            .outerjoin(ProjectMember, ProjectMember.project_id == Project.id)
+            .filter(
+                (Project.owner_id == current_user.id) | 
+                (ProjectMember.user_id == current_user.id)
+            )
+        )
 
-    return (
-        db.query(Project)
-        .join(ProjectMember, ProjectMember.project_id == Project.id)
-        .filter(ProjectMember.user_id == current_user.id)
-        .all()
-    )
+    if status_ is not None:
+        query = query.filter(Project.status == status_)
+
+    return query.order_by(Project.created_at.desc()).offset(offset).limit(limit).all()
 
 
 @router.get("/{project_id}", response_model=ProjectOut)
@@ -235,6 +245,28 @@ def remove_project_member(
     if membership.project_role == ProjectRole.admin:
         _require_admin_or_siteadmin(db, current_user, project_id)
         _guard_last_admin(db, project_id, user_id)
+
+    db.delete(membership)
+    db.commit()
+
+
+@router.delete("/{project_id}/leave", status_code=status.HTTP_204_NO_CONTENT)
+def leave_project(
+    project_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """Self-service: any member can remove themselves without needing
+    manager+ (unlike the general remove_project_member endpoint)."""
+    membership = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.user_id == current_user.id,
+    ).first()
+    if not membership:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="You are not a member of this project")
+
+    if membership.project_role == ProjectRole.admin:
+        _guard_last_admin(db, project_id, current_user.id)
 
     db.delete(membership)
     db.commit()
