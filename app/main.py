@@ -14,7 +14,11 @@ app.include_router(comments.router)
 app.include_router(users.router)
 
 
-FRONTEND_FILE = Path(__file__).resolve().parent.parent / "frontend" / "index.html"
+FRONTEND_FILE = (
+    Path(__file__).resolve().parent.parent
+    / "frontend"
+    / "index.html"
+)
 
 
 @app.get("/", include_in_schema=False)
