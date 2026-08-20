@@ -7,20 +7,11 @@ from app.db.session import get_db
 from app.models.project import Project
 from app.models.project_member import ProjectMember, ProjectRole
 from app.models.task import Task, TaskStatus
-from app.models.user import User
+from app.models.user import User, GlobalRole
 from app.schemas.project import ProjectCreate, ProjectOut, ProjectMemberAdd, ProjectMemberOut, ProjectStats
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_project_role
 
 router = APIRouter(prefix="/projects", tags=["projects"])
-
-
-def _ensure_project_member(db: Session, project_id: str, user_id: str):
-    is_member = db.query(ProjectMember).filter(
-        ProjectMember.project_id == project_id,
-        ProjectMember.user_id == user_id,
-    ).first()
-    if not is_member:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this project")
 
 
 @router.post("/", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
@@ -53,6 +44,11 @@ def list_my_projects(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    # Site-wide admins see every project, not just ones they're a member of
+    # — consistent with them being able to act on any project.
+    if current_user.global_role == GlobalRole.admin:
+        return db.query(Project).all()
+
     return (
         db.query(Project)
         .join(ProjectMember, ProjectMember.project_id == Project.id)
@@ -67,11 +63,7 @@ def get_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-    _ensure_project_member(db, project.id, current_user.id)
-    return project
+    return require_project_role(db, current_user, project_id, ProjectRole.viewer)
 
 
 @router.post("/{project_id}/members", response_model=ProjectMemberOut, status_code=status.HTTP_201_CREATED)
@@ -81,12 +73,22 @@ def add_project_member(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
+    require_project_role(db, current_user, project_id, ProjectRole.manager)
 
-    if project.owner_id != current_user.id:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the project owner can add members")
+    # Granting owner/manager is more sensitive than granting contributor/viewer,
+    # so it's restricted to those who already hold owner (or a global admin).
+    if member_in.project_role in (ProjectRole.owner, ProjectRole.manager):
+        caller_membership = db.query(ProjectMember).filter(
+            ProjectMember.project_id == project_id,
+            ProjectMember.user_id == current_user.id,
+        ).first()
+        is_owner = caller_membership and caller_membership.project_role == ProjectRole.owner
+        is_admin = current_user.global_role == GlobalRole.admin
+        if not (is_owner or is_admin):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only an owner can grant owner or manager roles",
+            )
 
     target_user = db.query(User).filter(User.id == member_in.user_id).first()
     if not target_user:
@@ -116,10 +118,7 @@ def get_project_stats(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    project = db.query(Project).filter(Project.id == project_id).first()
-    if not project:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-    _ensure_project_member(db, project.id, current_user.id)
+    require_project_role(db, current_user, project_id, ProjectRole.viewer)
 
     status_counts = (
         db.query(Task.status, func.count(Task.id))

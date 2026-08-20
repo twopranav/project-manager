@@ -5,21 +5,19 @@ from app.db.session import get_db
 from app.models.task import Task
 from app.models.task_assignee import TaskAssignee
 from app.models.task_status_history import TaskStatusHistory
-from app.models.project_member import ProjectMember
+from app.models.project_member import ProjectRole, ProjectMember
 from app.models.user import User
 from app.schemas.task import TaskCreate, TaskUpdate, TaskOut
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_project_role
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
 
 
-def _ensure_project_member(db: Session, project_id: str, user_id: str):
-    is_member = db.query(ProjectMember).filter(
-        ProjectMember.project_id == project_id,
-        ProjectMember.user_id == user_id,
-    ).first()
-    if not is_member:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this project")
+def _get_task_or_404(db: Session, task_id: str) -> Task:
+    task = db.query(Task).filter(Task.id == task_id).first()
+    if not task:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    return task
 
 
 @router.post("/", response_model=TaskOut, status_code=status.HTTP_201_CREATED)
@@ -28,7 +26,7 @@ def create_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _ensure_project_member(db, task_in.project_id, current_user.id)
+    require_project_role(db, current_user, task_in.project_id, ProjectRole.contributor)
 
     new_task = Task(
         project_id=task_in.project_id,
@@ -60,7 +58,7 @@ def list_tasks_for_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _ensure_project_member(db, project_id, current_user.id)
+    require_project_role(db, current_user, project_id, ProjectRole.viewer)
     return db.query(Task).filter(Task.project_id == project_id).all()
 
 
@@ -70,10 +68,8 @@ def get_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
-    _ensure_project_member(db, task.project_id, current_user.id)
+    task = _get_task_or_404(db, task_id)
+    require_project_role(db, current_user, task.project_id, ProjectRole.viewer)
     return task
 
 
@@ -84,10 +80,8 @@ def update_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
-    _ensure_project_member(db, task.project_id, current_user.id)
+    task = _get_task_or_404(db, task_id)
+    require_project_role(db, current_user, task.project_id, ProjectRole.contributor)
 
     update_data = task_update.model_dump(exclude_unset=True)
     old_status = task.status
@@ -118,12 +112,17 @@ def assign_user_to_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+    task = _get_task_or_404(db, task_id)
 
-    _ensure_project_member(db, task.project_id, current_user.id)   # caller must be a member
-    _ensure_project_member(db, task.project_id, user_id)           # assignee must be a member too
+    require_project_role(db, current_user, task.project_id, ProjectRole.contributor)  # caller must be contributor+
+
+    # the assignee themselves just needs to be a member (viewer+), not necessarily contributor+
+    assignee_is_member = db.query(ProjectMember).filter(
+        ProjectMember.project_id == task.project_id,
+        ProjectMember.user_id == user_id,
+    ).first()
+    if not assignee_is_member:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User being assigned is not a member of this project")
 
     existing = db.query(TaskAssignee).filter(
         TaskAssignee.task_id == task_id,
@@ -144,10 +143,8 @@ def unassign_user_from_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    task = db.query(Task).filter(Task.id == task_id).first()
-    if not task:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
-    _ensure_project_member(db, task.project_id, current_user.id)
+    task = _get_task_or_404(db, task_id)
+    require_project_role(db, current_user, task.project_id, ProjectRole.contributor)
 
     assignment = db.query(TaskAssignee).filter(
         TaskAssignee.task_id == task_id,
