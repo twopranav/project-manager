@@ -6,7 +6,7 @@ from app.models.comment import Comment
 from app.models.task import Task
 from app.models.project_member import ProjectMember
 from app.models.user import User
-from app.schemas.comment import CommentCreate, CommentOut
+from app.schemas.comment import CommentCreate, CommentUpdate, CommentOut
 from app.api.deps import get_current_user
 
 router = APIRouter(prefix="/comments", tags=["comments"])
@@ -67,7 +67,7 @@ def list_comments_for_task(
 @router.patch("/{comment_id}", response_model=CommentOut)
 def edit_comment(
     comment_id: str,
-    content: str,
+    comment_update: CommentUpdate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -78,7 +78,7 @@ def edit_comment(
     if comment.user_id != current_user.id:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only edit your own comments")
 
-    comment.content = content
+    comment.content = comment_update.content
     db.commit()
     db.refresh(comment)
     return comment

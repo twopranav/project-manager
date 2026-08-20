@@ -7,6 +7,9 @@ class CommentCreate(BaseModel):
     content: str
     parent_comment_id: Optional[str] = None
 
+class CommentUpdate(BaseModel):
+    content: str
+
 class CommentOut(BaseModel):
     id: str
     task_id: str
