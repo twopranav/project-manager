@@ -1,0 +1,19 @@
+from pydantic import BaseModel
+from datetime import datetime
+from typing import Optional
+
+class CommentCreate(BaseModel):
+    task_id: str
+    content: str
+    parent_comment_id: Optional[str] = None
+
+class CommentOut(BaseModel):
+    id: str
+    task_id: str
+    user_id: str
+    parent_comment_id: Optional[str]
+    content: str
+    created_at: datetime
+    updated_at: datetime
+    class Config:
+        from_attributes = True
