@@ -4,26 +4,18 @@ from typing import List
 from app.db.session import get_db
 from app.models.comment import Comment
 from app.models.task import Task
-from app.models.project_member import ProjectMember
-from app.models.user import User
+from app.models.project_member import ProjectRole
+from app.models.user import User, GlobalRole
 from app.schemas.comment import CommentCreate, CommentUpdate, CommentOut
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, require_project_role
 
 router = APIRouter(prefix="/comments", tags=["comments"])
 
 
-def _ensure_task_access(db: Session, task_id: str, user_id: str) -> Task:
+def _get_task_or_404(db: Session, task_id: str) -> Task:
     task = db.query(Task).filter(Task.id == task_id).first()
     if not task:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
-
-    is_member = db.query(ProjectMember).filter(
-        ProjectMember.project_id == task.project_id,
-        ProjectMember.user_id == user_id,
-    ).first()
-    if not is_member:
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this project")
-
     return task
 
 
@@ -33,7 +25,8 @@ def create_comment(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _ensure_task_access(db, comment_in.task_id, current_user.id)
+    task = _get_task_or_404(db, comment_in.task_id)
+    require_project_role(db, current_user, task.project_id, ProjectRole.contributor)
 
     if comment_in.parent_comment_id:
         parent = db.query(Comment).filter(Comment.id == comment_in.parent_comment_id).first()
@@ -60,7 +53,8 @@ def list_comments_for_task(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    _ensure_task_access(db, task_id, current_user.id)
+    task = _get_task_or_404(db, task_id)
+    require_project_role(db, current_user, task.project_id, ProjectRole.viewer)
     return db.query(Comment).filter(Comment.task_id == task_id).order_by(Comment.created_at).all()
 
 
@@ -75,7 +69,9 @@ def edit_comment(
     if not comment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
 
-    if comment.user_id != current_user.id:
+    is_author = comment.user_id == current_user.id
+    is_admin = current_user.global_role == GlobalRole.admin
+    if not (is_author or is_admin):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only edit your own comments")
 
     comment.content = comment_update.content
@@ -94,7 +90,9 @@ def delete_comment(
     if not comment:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
 
-    if comment.user_id != current_user.id:
+    is_author = comment.user_id == current_user.id
+    is_admin = current_user.global_role == GlobalRole.admin
+    if not (is_author or is_admin):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only delete your own comments")
 
     db.delete(comment)
