@@ -1,0 +1,4 @@
+Project: Team Task Management API
+Build a REST API where users can create projects, assign tasks to team members, update task progress, add comments, and view basic project statistics.
+Decide user roles.
+Use Python + FastAPI + PostgreSQL + SQLAlchemy + Alembic + Pydantic + JWT authentication.
