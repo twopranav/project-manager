@@ -5,9 +5,9 @@ from sqlalchemy.orm import relationship
 from app.db.base_class import Base
 
 class ProjectRole(str, enum.Enum):
-    owner = "owner"
+    admin = "admin"         
     manager = "manager"
-    contributor = "contributor"
+    contributor = "contributor" 
     viewer = "viewer"
 
 class ProjectMember(Base):

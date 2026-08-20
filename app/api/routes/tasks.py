@@ -5,12 +5,17 @@ from app.db.session import get_db
 from app.models.task import Task
 from app.models.task_assignee import TaskAssignee
 from app.models.task_status_history import TaskStatusHistory
+from app.models.comment import Comment
 from app.models.project_member import ProjectRole, ProjectMember
 from app.models.user import User
 from app.schemas.task import TaskCreate, TaskUpdate, TaskOut
 from app.api.deps import get_current_user, require_project_role
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
+
+# Fields a contributor (basic perms) may touch via PATCH — status only.
+# Anything else (title/description/priority/due_date) needs manager+.
+_contributor_EDITABLE_FIELDS = {"status"}
 
 
 def _get_task_or_404(db: Session, task_id: str) -> Task:
@@ -40,7 +45,6 @@ def create_task(
     db.commit()
     db.refresh(new_task)
 
-    # log the initial status too, so history is complete from creation
     db.add(TaskStatusHistory(
         task_id=new_task.id,
         changed_by=current_user.id,
@@ -62,6 +66,20 @@ def list_tasks_for_project(
     return db.query(Task).filter(Task.project_id == project_id).all()
 
 
+@router.get("/assigned/me", response_model=List[TaskOut])
+def list_my_assigned_tasks(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    # must stay registered above /{task_id} or "assigned" gets swallowed as a task_id
+    return (
+        db.query(Task)
+        .join(TaskAssignee, TaskAssignee.task_id == Task.id)
+        .filter(TaskAssignee.user_id == current_user.id)
+        .all()
+    )
+
+
 @router.get("/{task_id}", response_model=TaskOut)
 def get_task(
     task_id: str,
@@ -81,18 +99,22 @@ def update_task(
     current_user: User = Depends(get_current_user),
 ):
     task = _get_task_or_404(db, task_id)
-    require_project_role(db, current_user, task.project_id, ProjectRole.contributor)
-
     update_data = task_update.model_dump(exclude_unset=True)
-    old_status = task.status
 
+    fields_being_changed = set(update_data.keys())
+    if fields_being_changed <= _contributor_EDITABLE_FIELDS:
+        min_role = ProjectRole.contributor
+    else:
+        min_role = ProjectRole.manager  # touching title/description/priority/due_date
+    require_project_role(db, current_user, task.project_id, min_role)
+
+    old_status = task.status
     for field, value in update_data.items():
         setattr(task, field, value)
 
     db.commit()
     db.refresh(task)
 
-    # only log history if status actually changed
     if "status" in update_data and update_data["status"] != old_status:
         db.add(TaskStatusHistory(
             task_id=task.id,
@@ -105,6 +127,22 @@ def update_task(
     return task
 
 
+@router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_task(
+    task_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    task = _get_task_or_404(db, task_id)
+    require_project_role(db, current_user, task.project_id, ProjectRole.contributor)
+
+    db.query(Comment).filter(Comment.task_id == task_id).delete()
+    db.query(TaskAssignee).filter(TaskAssignee.task_id == task_id).delete()
+    db.query(TaskStatusHistory).filter(TaskStatusHistory.task_id == task_id).delete()
+    db.delete(task)
+    db.commit()
+
+
 @router.post("/{task_id}/assign", status_code=status.HTTP_201_CREATED)
 def assign_user_to_task(
     task_id: str,
@@ -113,10 +151,8 @@ def assign_user_to_task(
     current_user: User = Depends(get_current_user),
 ):
     task = _get_task_or_404(db, task_id)
+    require_project_role(db, current_user, task.project_id, ProjectRole.contributor)
 
-    require_project_role(db, current_user, task.project_id, ProjectRole.contributor)  # caller must be contributor+
-
-    # the assignee themselves just needs to be a member (viewer+), not necessarily contributor+
     assignee_is_member = db.query(ProjectMember).filter(
         ProjectMember.project_id == task.project_id,
         ProjectMember.user_id == user_id,
