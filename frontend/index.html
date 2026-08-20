@@ -1,720 +1,2159 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Team Task Management</title>
-  <style>
-    :root {
-      --bg: #f5f7fb;
-      --card: #ffffff;
-      --text: #172033;
-      --muted: #667085;
-      --border: #e4e7ec;
-      --primary: #2563eb;
-      --primary-dark: #1d4ed8;
-      --success: #15803d;
-      --danger: #b42318;
-      --warning: #b54708;
-      --shadow: 0 8px 24px rgba(16, 24, 40, .07);
-      --radius: 14px;
-    }
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-    }
-    header {
-      background: #111827;
-      color: #fff;
-      padding: 16px 24px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      gap: 16px;
-      position: sticky;
-      top: 0;
-      z-index: 10;
-    }
-    header h1 { margin: 0; font-size: 20px; }
-    header .user {
-      display: flex; align-items: center; gap: 10px;
-      font-size: 14px;
-    }
-    main { max-width: 1300px; margin: 24px auto; padding: 0 16px 40px; }
-    .grid { display: grid; gap: 16px; }
-    .grid-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-    .grid-3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-    .card {
-      background: var(--card);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
-      box-shadow: var(--shadow);
-      padding: 18px;
-    }
-    h2, h3 { margin-top: 0; }
-    h2 { font-size: 20px; }
-    h3 { font-size: 16px; margin-bottom: 12px; }
-    label { display: block; font-size: 13px; font-weight: 600; margin: 10px 0 6px; }
-    input, textarea, select, button {
-      width: 100%;
-      font: inherit;
-    }
-    input, textarea, select {
-      padding: 10px 12px;
-      border: 1px solid var(--border);
-      border-radius: 10px;
-      outline: none;
-      background: #fff;
-    }
-    textarea { min-height: 90px; resize: vertical; }
-    input:focus, textarea:focus, select:focus { border-color: var(--primary); }
-    button {
-      border: 0;
-      border-radius: 10px;
-      padding: 10px 12px;
-      background: var(--primary);
-      color: #fff;
-      cursor: pointer;
-      font-weight: 600;
-      margin-top: 12px;
-    }
-    button:hover { background: var(--primary-dark); }
-    button.secondary { background: #eef2ff; color: #3730a3; }
-    button.danger { background: #fee4e2; color: var(--danger); }
-    button.small { width: auto; padding: 7px 10px; margin-top: 0; font-size: 12px; }
-    .row { display: flex; gap: 10px; align-items: end; }
-    .row > * { flex: 1; }
-    .muted { color: var(--muted); }
-    .hidden { display: none !important; }
-    .tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 16px; }
-    .tab {
-      width: auto; margin: 0; background: #fff; color: #344054;
-      border: 1px solid var(--border);
-    }
-    .tab.active { background: #111827; color: #fff; border-color: #111827; }
-    .list { display: grid; gap: 10px; }
-    .item {
-      border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 12px;
-      background: #fff;
-    }
-    .item.active { border-color: var(--primary); box-shadow: 0 0 0 2px rgba(37,99,235,.08); }
-    .item-title { font-weight: 700; }
-    .meta { font-size: 12px; color: var(--muted); margin-top: 4px; }
-    .pill {
-      display: inline-block; border-radius: 999px; padding: 3px 8px;
-      font-size: 11px; font-weight: 700; background: #eef2ff; color: #3730a3;
-      margin-right: 5px;
-    }
-    .pill.success { background: #dcfce7; color: #166534; }
-    .pill.warn { background: #fff4e5; color: #9a3412; }
-    .pill.gray { background: #f2f4f7; color: #475467; }
-    .flash {
-      margin-bottom: 16px; padding: 11px 13px; border-radius: 10px;
-      background: #ecfdf3; color: #166534; border: 1px solid #abefc6;
-    }
-    .flash.error { background: #fef3f2; color: #b42318; border-color: #fecdca; }
-    .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-    .stat {
-      border: 1px solid var(--border); border-radius: 12px; padding: 12px;
-      text-align: center; background: #fafafa;
-    }
-    .stat strong { display: block; font-size: 24px; }
-    .comment { padding: 10px; border-left: 3px solid #d0d5dd; margin-top: 8px; }
-    .reply { margin-left: 22px; }
-    .small-note { font-size: 12px; color: var(--muted); }
-    code { background: #f2f4f7; padding: 2px 5px; border-radius: 5px; }
-    @media (max-width: 900px) {
-      .grid-2, .grid-3 { grid-template-columns: 1fr; }
-      .stats { grid-template-columns: repeat(2, 1fr); }
-    }
-  </style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Team Task Management</title>
+
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            font-family: Arial, sans-serif;
+            background: #f4f6f8;
+            color: #1f2937;
+        }
+
+        header {
+            background: #111827;
+            color: white;
+            padding: 16px 28px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        header h1 {
+            margin: 0;
+            font-size: 21px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 30px auto;
+            padding: 0 20px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 22px;
+            margin-bottom: 20px;
+            box-shadow: 0 4px 15px rgba(0, 0, 0, 0.06);
+        }
+
+        .auth-card {
+            max-width: 450px;
+            margin: 70px auto;
+        }
+
+        h2 {
+            margin-top: 0;
+        }
+
+        label {
+            display: block;
+            margin: 12px 0 6px;
+            font-weight: bold;
+        }
+
+        input,
+        textarea,
+        select {
+            width: 100%;
+            padding: 10px 12px;
+            border: 1px solid #d1d5db;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+
+        textarea {
+            min-height: 90px;
+            resize: vertical;
+        }
+
+        button {
+            width: 100%;
+            margin-top: 14px;
+            padding: 11px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            background: #2563eb;
+            color: white;
+        }
+
+        button:hover {
+            background: #1d4ed8;
+        }
+
+        button.secondary {
+            background: #e5e7eb;
+            color: #111827;
+        }
+
+        button.secondary:hover {
+            background: #d1d5db;
+        }
+
+        button.danger {
+            background: #dc2626;
+        }
+
+        .link-button {
+            background: none;
+            color: #2563eb;
+            padding: 0;
+            margin-top: 14px;
+            font-weight: normal;
+        }
+
+        .link-button:hover {
+            background: none;
+            text-decoration: underline;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        .message {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+            background: #dcfce7;
+            color: #166534;
+        }
+
+        .message.error {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+
+        .tabs {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 20px;
+        }
+
+        .tab {
+            width: auto;
+            margin: 0;
+            background: white;
+            color: #374151;
+            border: 1px solid #d1d5db;
+        }
+
+        .tab.active {
+            background: #111827;
+            color: white;
+        }
+
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 20px;
+        }
+
+        .grid-3 {
+            grid-template-columns: repeat(3, 1fr);
+        }
+
+        .item {
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 14px;
+            margin-bottom: 10px;
+            background: #fafafa;
+        }
+
+        .item-title {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .muted {
+            color: #6b7280;
+            font-size: 13px;
+        }
+
+        .pill {
+            display: inline-block;
+            padding: 4px 9px;
+            border-radius: 20px;
+            background: #eef2ff;
+            color: #3730a3;
+            font-size: 12px;
+            margin-top: 7px;
+        }
+
+        .stat-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+        }
+
+        .stat {
+            background: #f9fafb;
+            border: 1px solid #e5e7eb;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+        }
+
+        .stat strong {
+            display: block;
+            font-size: 26px;
+            margin-bottom: 4px;
+        }
+
+        .user-info {
+            font-size: 13px;
+        }
+
+        @media (max-width: 800px) {
+            .grid,
+            .grid-3,
+            .stat-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
+
 <body>
+
 <header>
-  <h1>Team Task Management</h1>
-  <div class="user">
-    <span id="whoami">Not signed in</span>
-    <button id="logoutBtn" class="small danger hidden" onclick="logout()">Log out</button>
-  </div>
+    <h1>Team Task Management</h1>
+
+    <div id="headerUser" class="user-info">
+        Not logged in
+    </div>
+
+    <button
+        id="logoutButton"
+        class="danger hidden"
+        onclick="logout()"
+        style="width:auto; margin:0;"
+    >
+        Logout
+    </button>
 </header>
 
-<main>
-  <div id="flash" class="flash hidden"></div>
+<div class="container">
 
-  <section id="authView" class="grid grid-2">
-    <div class="card">
-      <h2>Login</h2>
-      <p class="muted">Use your API account. The first registered user becomes the global admin.</p>
-      <label>Email</label>
-      <input id="loginEmail" type="email" placeholder="you@example.com">
-      <label>Password</label>
-      <input id="loginPassword" type="password" placeholder="••••••••">
-      <button onclick="login()">Login</button>
+    <div id="message" class="message hidden"></div>
+
+    <!-- LOGIN -->
+    <div id="loginScreen" class="card auth-card">
+
+        <h2>Login</h2>
+
+        <p class="muted">
+            Sign in to use the Team Task Management API.
+        </p>
+
+        <label>Email</label>
+        <input
+            id="loginEmail"
+            type="email"
+            placeholder="you@example.com"
+        >
+
+        <label>Password</label>
+        <input
+            id="loginPassword"
+            type="password"
+            placeholder="Password"
+        >
+
+        <button onclick="login()">
+            Login
+        </button>
+
+        <button
+            class="link-button"
+            onclick="showRegister()"
+        >
+            Don't have an account? Register
+        </button>
+
     </div>
 
-    <div class="card">
-      <h2>Register</h2>
-      <p class="muted">Create a new user for testing roles and project membership.</p>
-      <label>Name</label>
-      <input id="regName" placeholder="Test User">
-      <label>Email</label>
-      <input id="regEmail" type="email" placeholder="test@example.com">
-      <label>Password</label>
-      <input id="regPassword" type="password" placeholder="••••••••">
-      <button onclick="register()">Register</button>
+
+    <!-- REGISTER -->
+    <div id="registerScreen" class="card auth-card hidden">
+
+        <h2>Register</h2>
+
+        <p class="muted">
+            Create a new user account.
+        </p>
+
+        <label>Name</label>
+        <input
+            id="registerName"
+            placeholder="John Doe"
+        >
+
+        <label>Email</label>
+        <input
+            id="registerEmail"
+            type="email"
+            placeholder="john@example.com"
+        >
+
+        <label>Password</label>
+        <input
+            id="registerPassword"
+            type="password"
+            placeholder="Password"
+        >
+
+        <button onclick="register()">
+            Register
+        </button>
+
+        <button
+            class="link-button"
+            onclick="showLogin()"
+        >
+            Already have an account? Login
+        </button>
+
     </div>
-  </section>
 
-  <section id="appView" class="hidden">
-    <div class="tabs">
-      <button class="tab active" data-tab="dashboard" onclick="showTab('dashboard')">Dashboard</button>
-      <button class="tab" data-tab="projects" onclick="showTab('projects')">Projects</button>
-      <button class="tab" data-tab="tasks" onclick="showTab('tasks')">Tasks</button>
-      <button class="tab" data-tab="members" onclick="showTab('members')">Members</button>
-      <button class="tab" data-tab="comments" onclick="showTab('comments')">Comments</button>
-      <button class="tab" data-tab="stats" onclick="showTab('stats')">Statistics</button>
-      <button class="tab" data-tab="api" onclick="showTab('api')">API</button>
-    </div>
 
-    <section id="tab-dashboard" class="tab-panel">
-      <div class="grid grid-3">
-        <div class="card">
-          <h3>Current user</h3>
-          <div id="profileBox" class="muted">Loading...</div>
-        </div>
-        <div class="card">
-          <h3>Projects</h3>
-          <div id="projectCount" style="font-size:34px;font-weight:800">0</div>
-        </div>
-        <div class="card">
-          <h3>Assigned tasks</h3>
-          <div id="assignedCount" style="font-size:34px;font-weight:800">0</div>
-        </div>
-      </div>
+    <!-- APPLICATION -->
+    <div id="appScreen" class="hidden">
 
-      <div class="card" style="margin-top:16px">
-        <h3>Quick evaluation flow</h3>
-        <ol>
-          <li>Register two or more users.</li>
-          <li>Log in as one user and create a project.</li>
-          <li>Add another user as a contributor or viewer.</li>
-          <li>Create a task and assign the other user.</li>
-          <li>Change task status and check its history.</li>
-          <li>Add a comment/reply.</li>
-          <li>Open Statistics and verify project totals.</li>
-        </ol>
-      </div>
-    </section>
+        <div class="tabs">
 
-    <section id="tab-projects" class="tab-panel hidden">
-      <div class="grid grid-2">
-        <div class="card">
-          <h2>Create project</h2>
-          <label>Name</label>
-          <input id="projectName" placeholder="Website Redesign">
-          <label>Description</label>
-          <textarea id="projectDescription" placeholder="Project description"></textarea>
-          <button onclick="createProject()">Create project</button>
-        </div>
-        <div class="card">
-          <h2>Your projects</h2>
-          <div id="projectList" class="list"></div>
-        </div>
-      </div>
-    </section>
+            <button
+                class="tab active"
+                onclick="showTab('dashboard', this)"
+            >
+                Dashboard
+            </button>
 
-    <section id="tab-tasks" class="tab-panel hidden">
-      <div class="grid grid-2">
-        <div class="card">
-          <h2>Create task</h2>
-          <label>Project</label>
-          <select id="taskProject"></select>
-          <label>Title</label>
-          <input id="taskTitle" placeholder="Build login API">
-          <label>Description</label>
-          <textarea id="taskDescription" placeholder="Task description"></textarea>
-          <div class="row">
-            <div>
-              <label>Priority</label>
-              <select id="taskPriority">
-                <option value="low">Low</option>
-                <option value="medium" selected>Medium</option>
-                <option value="high">High</option>
-                <option value="urgent">Urgent</option>
-              </select>
+            <button
+                class="tab"
+                onclick="showTab('projects', this)"
+            >
+                Projects
+            </button>
+
+            <button
+                class="tab"
+                onclick="showTab('tasks', this)"
+            >
+                Tasks
+            </button>
+
+            <button
+                class="tab"
+                onclick="showTab('members', this)"
+            >
+                Members
+            </button>
+
+            <button
+                class="tab"
+                onclick="showTab('comments', this)"
+            >
+                Comments
+            </button>
+
+            <button
+                class="tab"
+                onclick="showTab('stats', this)"
+            >
+                Statistics
+            </button>
+
+            <button
+                class="tab"
+                onclick="showTab('api', this)"
+            >
+                API
+            </button>
+
+        </div>
+
+
+        <!-- DASHBOARD -->
+        <section id="dashboardTab">
+
+            <div class="grid grid-3">
+
+                <div class="card">
+                    <h3>Current User</h3>
+                    <div id="currentUser">
+                        Loading...
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>Total Projects</h3>
+                    <div
+                        id="projectCount"
+                        style="font-size:32px;font-weight:bold;"
+                    >
+                        0
+                    </div>
+                </div>
+
+                <div class="card">
+                    <h3>Assigned Tasks</h3>
+                    <div
+                        id="assignedTaskCount"
+                        style="font-size:32px;font-weight:bold;"
+                    >
+                        0
+                    </div>
+                </div>
+
             </div>
-            <div>
-              <label>Due date</label>
-              <input id="taskDueDate" type="date">
+
+
+        </section>
+
+
+        <!-- PROJECTS -->
+        <section
+            id="projectsTab"
+            class="hidden"
+        >
+
+            <div class="grid">
+
+                <div class="card">
+
+                    <h2>Create Project</h2>
+
+                    <label>Name</label>
+                    <input
+                        id="projectName"
+                        placeholder="Website Project"
+                    >
+
+                    <label>Description</label>
+
+                    <textarea
+                        id="projectDescription"
+                        placeholder="Project description"
+                    ></textarea>
+
+                    <button onclick="createProject()">
+                        Create Project
+                    </button>
+
+                </div>
+
+
+                <div class="card">
+
+                    <h2>Your Projects</h2>
+
+                    <div id="projectList">
+                        No projects yet.
+                    </div>
+
+                </div>
+
             </div>
-          </div>
-          <button onclick="createTask()">Create task</button>
-        </div>
 
-        <div class="card">
-          <h2>Tasks in selected project</h2>
-          <div class="row">
-            <select id="taskProjectFilter" onchange="loadTasks()"></select>
-            <button class="secondary" onclick="loadTasks()">Refresh</button>
-          </div>
-          <div id="taskList" class="list" style="margin-top:12px"></div>
-        </div>
-      </div>
+        </section>
 
-      <div class="card" style="margin-top:16px">
-        <h2>Selected task</h2>
-        <div id="selectedTaskBox" class="muted">Select a task above.</div>
-      </div>
-    </section>
 
-    <section id="tab-members" class="tab-panel hidden">
-      <div class="grid grid-2">
-        <div class="card">
-          <h2>Project members</h2>
-          <label>Project</label>
-          <select id="memberProject" onchange="loadMembers()"></select>
-          <div id="memberList" class="list" style="margin-top:12px"></div>
-        </div>
-        <div class="card">
-          <h2>Add member</h2>
-          <p class="small-note">Use the user's email; the UI resolves the user ID through the API.</p>
-          <label>Email</label>
-          <input id="memberEmail" placeholder="teammate@example.com">
-          <label>Project role</label>
-          <select id="memberRole">
-            <option value="viewer">Viewer</option>
-            <option value="contributor" selected>Contributor</option>
-            <option value="manager">Manager</option>
-            <option value="admin">Admin</option>
-          </select>
-          <button onclick="addMember()">Add member</button>
-        </div>
-      </div>
-    </section>
+        <!-- TASKS -->
+        <section
+            id="tasksTab"
+            class="hidden"
+        >
 
-    <section id="tab-comments" class="tab-panel hidden">
-      <div class="card">
-        <h2>Task comments</h2>
-        <div class="row">
-          <select id="commentProject" onchange="populateCommentTasks()"></select>
-          <select id="commentTask" onchange="loadComments()"></select>
-        </div>
-        <label>Comment</label>
-        <textarea id="commentText" placeholder="Write a comment..."></textarea>
-        <button onclick="addComment()">Add comment</button>
-        <div id="commentList" style="margin-top:14px"></div>
-      </div>
-    </section>
+            <div class="grid">
 
-    <section id="tab-stats" class="tab-panel hidden">
-      <div class="card">
-        <h2>Project statistics</h2>
-        <div class="row">
-          <select id="statsProject"></select>
-          <button onclick="loadStats()">Refresh statistics</button>
-        </div>
-        <div id="statsBox" style="margin-top:16px"></div>
-      </div>
-    </section>
+                <div class="card">
 
-    <section id="tab-api" class="tab-panel hidden">
-      <div class="card">
-        <h2>Useful API links</h2>
-        <p><a href="/docs" target="_blank">Open Swagger UI</a></p>
-        <p><a href="/redoc" target="_blank">Open ReDoc</a></p>
-        <p class="small-note">The UI calls the same FastAPI app you are evaluating.</p>
-      </div>
-    </section>
-  </section>
-</main>
+                    <h2>Create Task</h2>
+
+                    <label>Project</label>
+
+                    <select id="taskProject"></select>
+
+                    <label>Title</label>
+
+                    <input
+                        id="taskTitle"
+                        placeholder="Build login API"
+                    >
+
+                    <label>Description</label>
+
+                    <textarea
+                        id="taskDescription"
+                        placeholder="Task description"
+                    ></textarea>
+
+                    <label>Priority</label>
+
+                    <select id="taskPriority">
+
+                        <option value="low">
+                            Low
+                        </option>
+
+                        <option
+                            value="medium"
+                            selected
+                        >
+                            Medium
+                        </option>
+
+                        <option value="high">
+                            High
+                        </option>
+
+                        <option value="urgent">
+                            Urgent
+                        </option>
+
+                    </select>
+
+                    <label>Due Date</label>
+
+                    <input
+                        id="taskDueDate"
+                        type="date"
+                    >
+
+                    <button onclick="createTask()">
+                        Create Task
+                    </button>
+
+                </div>
+
+
+                <div class="card">
+
+                    <h2>Project Tasks</h2>
+
+                    <select
+                        id="taskProjectFilter"
+                        onchange="loadTasks()"
+                    ></select>
+
+                    <div
+                        id="taskList"
+                        style="margin-top:15px;"
+                    ></div>
+
+                </div>
+
+            </div>
+
+
+            <div class="card">
+
+                <h2>Selected Task</h2>
+
+                <div
+                    id="selectedTask"
+                    class="muted"
+                >
+                    Select a task.
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- MEMBERS -->
+        <section
+            id="membersTab"
+            class="hidden"
+        >
+
+            <div class="grid">
+
+                <div class="card">
+
+                    <h2>Project Members</h2>
+
+                    <select
+                        id="memberProject"
+                        onchange="loadMembers()"
+                    ></select>
+
+                    <div
+                        id="memberList"
+                        style="margin-top:15px;"
+                    ></div>
+
+                </div>
+
+
+                <div class="card">
+
+                    <h2>Add Member</h2>
+
+                    <label>User ID</label>
+
+                    <input
+                        id="memberUserId"
+                        placeholder="User UUID"
+                    >
+
+                    <label>Project Role</label>
+
+                    <select id="memberRole">
+
+                        <option value="viewer">
+                            Viewer
+                        </option>
+
+                        <option value="contributor">
+                            Contributor
+                        </option>
+
+                        <option value="manager">
+                            Manager
+                        </option>
+
+                        <option value="admin">
+                            Admin
+                        </option>
+
+                    </select>
+
+                    <button onclick="addMember()">
+                        Add Member
+                    </button>
+
+                </div>
+
+            </div>
+
+        </section>
+
+
+        <!-- COMMENTS -->
+        <section
+            id="commentsTab"
+            class="hidden"
+        >
+
+            <div class="card">
+
+                <h2>Task Comments</h2>
+
+                <label>Project</label>
+
+                <select
+                    id="commentProject"
+                    onchange="loadCommentTasks()"
+                ></select>
+
+                <label>Task</label>
+
+                <select
+                    id="commentTask"
+                    onchange="loadComments()"
+                ></select>
+
+                <label>Comment</label>
+
+                <textarea
+                    id="commentText"
+                    placeholder="Write a comment..."
+                ></textarea>
+
+                <button onclick="addComment()">
+                    Add Comment
+                </button>
+
+                <div
+                    id="commentList"
+                    style="margin-top:15px;"
+                ></div>
+
+            </div>
+
+        </section>
+
+
+        <!-- STATS -->
+        <section
+            id="statsTab"
+            class="hidden"
+        >
+
+            <div class="card">
+
+                <h2>Project Statistics</h2>
+
+                <select
+                    id="statsProject"
+                    onchange="loadStats()"
+                ></select>
+
+                <div
+                    id="stats"
+                    style="margin-top:20px;"
+                ></div>
+
+            </div>
+
+        </section>
+
+
+        <!-- API -->
+        <section
+            id="apiTab"
+            class="hidden"
+        >
+
+            <div class="card">
+
+                <h2>Developer Tools</h2>
+
+                <p>
+                    <a
+                        href="/docs"
+                        target="_blank"
+                    >
+                        Open Swagger UI
+                    </a>
+                </p>
+
+                <p>
+                    <a
+                        href="/redoc"
+                        target="_blank"
+                    >
+                        Open ReDoc
+                    </a>
+                </p>
+
+            </div>
+
+        </section>
+
+    </div>
+
+</div>
+
 
 <script>
-const API = "";
-let token = localStorage.getItem("access_token");
-let currentUser = null;
-let projects = [];
-let tasks = [];
-let selectedTask = null;
 
-function esc(v) {
-  return String(v ?? "").replace(/[&<>"']/g, c => ({
-    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
-  }[c]));
-}
+    const API = "";
 
-function flash(message, error=false) {
-  const el = document.getElementById("flash");
-  el.textContent = message;
-  el.className = "flash" + (error ? " error" : "");
-  el.classList.remove("hidden");
-  setTimeout(() => el.classList.add("hidden"), 4500);
-}
+    let token = localStorage.getItem("access_token");
 
-async function api(path, options={}) {
-  const headers = new Headers(options.headers || {});
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  if (options.body && !(options.body instanceof FormData) && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-  const res = await fetch(API + path, {...options, headers});
-  const text = await res.text();
-  let data = null;
-  try { data = text ? JSON.parse(text) : null; } catch {}
-  if (!res.ok) {
-    const detail = data?.detail ?? text ?? `HTTP ${res.status}`;
-    throw new Error(typeof detail === "string" ? detail : JSON.stringify(detail));
-  }
-  return data;
-}
+    let currentUser = null;
 
-async function register() {
-  try {
-    const body = {
-      name: document.getElementById("regName").value.trim(),
-      email: document.getElementById("regEmail").value.trim(),
-      password: document.getElementById("regPassword").value
-    };
-    await api("/auth/register", {method:"POST", body: JSON.stringify(body)});
-    flash("Registration successful. You can now log in.");
-    document.getElementById("loginEmail").value = body.email;
-    document.getElementById("loginPassword").value = body.password;
-  } catch (e) { flash(e.message, true); }
-}
+    let projects = [];
 
-async function login() {
-  try {
-    const email = document.getElementById("loginEmail").value.trim();
-    const password = document.getElementById("loginPassword").value;
-    const body = new URLSearchParams();
-    body.set("username", email);
-    body.set("password", password);
-    const res = await fetch("/auth/login", {
-      method: "POST",
-      headers: {"Content-Type":"application/x-www-form-urlencoded"},
-      body
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.detail || "Login failed");
-    token = data.access_token;
-    localStorage.setItem("access_token", token);
-    await bootApp();
-    flash("Logged in.");
-  } catch (e) { flash(e.message, true); }
-}
+    let tasks = [];
 
-async function bootApp() {
-  currentUser = await api("/users/me");
-  document.getElementById("authView").classList.add("hidden");
-  document.getElementById("appView").classList.remove("hidden");
-  document.getElementById("logoutBtn").classList.remove("hidden");
-  document.getElementById("whoami").textContent =
-    `${currentUser.name} • ${currentUser.global_role}`;
-  document.getElementById("profileBox").innerHTML =
-    `<strong>${esc(currentUser.name)}</strong><br>${esc(currentUser.email)}<br>` +
-    `<span class="pill">${esc(currentUser.global_role)}</span>`;
-  await loadProjects();
-  await loadAssignedCount();
-  await hydrateProjectSelects();
-}
+    let selectedTaskId = null;
 
-function logout() {
-  token = null;
-  localStorage.removeItem("access_token");
-  currentUser = null;
-  document.getElementById("authView").classList.remove("hidden");
-  document.getElementById("appView").classList.add("hidden");
-  document.getElementById("logoutBtn").classList.add("hidden");
-  document.getElementById("whoami").textContent = "Not signed in";
-}
 
-function showTab(name) {
-  document.querySelectorAll(".tab-panel").forEach(x => x.classList.add("hidden"));
-  document.getElementById(`tab-${name}`).classList.remove("hidden");
-  document.querySelectorAll(".tab").forEach(x => x.classList.remove("active"));
-  document.querySelector(`.tab[data-tab="${name}"]`).classList.add("active");
-}
+    function showMessage(message, error = false) {
 
-async function loadProjects() {
-  projects = await api("/projects/");
-  document.getElementById("projectCount").textContent = projects.length;
-  const list = document.getElementById("projectList");
-  if (!projects.length) {
-    list.innerHTML = `<div class="muted">No projects yet.</div>`;
-    return;
-  }
-  list.innerHTML = projects.map(p => `
-    <div class="item ${selectedTask?.project_id === p.id ? "active" : ""}">
-      <div class="item-title">${esc(p.name)}</div>
-      <div class="meta">${esc(p.description || "No description")}</div>
-      <div style="margin-top:8px">
-        <span class="pill gray">${esc(p.status)}</span>
-        <span class="small-note">${esc(p.id)}</span>
-      </div>
-    </div>
-  `).join("");
-}
+        const element =
+            document.getElementById("message");
 
-async function createProject() {
-  try {
-    const body = {
-      name: document.getElementById("projectName").value.trim(),
-      description: document.getElementById("projectDescription").value.trim() || null
-    };
-    const p = await api("/projects/", {method:"POST", body:JSON.stringify(body)});
-    flash(`Created project "${p.name}".`);
-    document.getElementById("projectName").value = "";
-    document.getElementById("projectDescription").value = "";
-    await loadProjects();
-    await hydrateProjectSelects();
-  } catch (e) { flash(e.message, true); }
-}
+        element.textContent = message;
 
-function setOptions(id, includeAll=false) {
-  const el = document.getElementById(id);
-  el.innerHTML = (includeAll ? `<option value="">Select project</option>` : "") +
-    projects.map(p => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("");
-}
+        element.className =
+            error
+                ? "message error"
+                : "message";
 
-async function hydrateProjectSelects() {
-  ["taskProject","taskProjectFilter","memberProject","commentProject","statsProject"].forEach(id => setOptions(id));
-  if (projects.length) {
-    document.getElementById("taskProject").value = projects[0].id;
-    document.getElementById("taskProjectFilter").value = projects[0].id;
-    document.getElementById("memberProject").value = projects[0].id;
-    document.getElementById("commentProject").value = projects[0].id;
-    document.getElementById("statsProject").value = projects[0].id;
-    await loadTasks();
-    await loadMembers();
-    await populateCommentTasks();
-    await loadStats();
-  }
-}
+        element.classList.remove("hidden");
 
-async function createTask() {
-  try {
-    const body = {
-      project_id: document.getElementById("taskProject").value,
-      title: document.getElementById("taskTitle").value.trim(),
-      description: document.getElementById("taskDescription").value.trim() || null,
-      priority: document.getElementById("taskPriority").value,
-      due_date: document.getElementById("taskDueDate").value || null
-    };
-    await api("/tasks/", {method:"POST", body:JSON.stringify(body)});
-    flash("Task created.");
-    document.getElementById("taskTitle").value = "";
-    document.getElementById("taskDescription").value = "";
-    await loadTasks();
-    await loadAssignedCount();
-    await loadStats();
-  } catch (e) { flash(e.message, true); }
-}
-
-async function loadTasks() {
-  const projectId = document.getElementById("taskProjectFilter").value;
-  if (!projectId) return;
-  tasks = await api(`/tasks/project/${encodeURIComponent(projectId)}`);
-  const list = document.getElementById("taskList");
-  if (!tasks.length) {
-    list.innerHTML = `<div class="muted">No tasks in this project.</div>`;
-    document.getElementById("selectedTaskBox").innerHTML = `<div class="muted">Select a task above.</div>`;
-    return;
-  }
-  list.innerHTML = tasks.map(t => `
-    <div class="item ${selectedTask?.id === t.id ? "active" : ""}" onclick="selectTask('${t.id}')">
-      <div class="item-title">${esc(t.title)}</div>
-      <div class="meta">${esc(t.priority)} • ${esc(t.due_date || "No due date")}</div>
-      <div style="margin-top:8px"><span class="pill">${esc(t.status)}</span></div>
-    </div>
-  `).join("");
-  if (selectedTask) {
-    const fresh = tasks.find(t => t.id === selectedTask.id);
-    if (fresh) selectedTask = fresh;
-  }
-}
-
-async function selectTask(id) {
-  selectedTask = await api(`/tasks/${id}`);
-  await renderSelectedTask();
-}
-
-async function renderSelectedTask() {
-  if (!selectedTask) return;
-  const box = document.getElementById("selectedTaskBox");
-  box.innerHTML = `
-    <div class="grid grid-2">
-      <div>
-        <h3>${esc(selectedTask.title)}</h3>
-        <div class="meta">${esc(selectedTask.description || "No description")}</div>
-        <p>
-          <span class="pill">${esc(selectedTask.status)}</span>
-          <span class="pill gray">${esc(selectedTask.priority)}</span>
-        </p>
-      </div>
-      <div>
-        <label>Update status</label>
-        <select id="selectedStatus">
-          ${["todo","in_progress","in_review","done","blocked"].map(s =>
-            `<option value="${s}" ${selectedTask.status===s ? "selected":""}>${s}</option>`
-          ).join("")}
-        </select>
-        <button onclick="updateTaskStatus()">Update status</button>
-        <button class="secondary" onclick="loadTaskHistory()">View status history</button>
-      </div>
-    </div>
-    <div id="historyBox" style="margin-top:12px"></div>
-  `;
-}
-
-async function updateTaskStatus() {
-  try {
-    const status = document.getElementById("selectedStatus").value;
-    selectedTask = await api(`/tasks/${selectedTask.id}`, {
-      method: "PATCH",
-      body: JSON.stringify({status})
-    });
-    flash("Task status updated.");
-    await loadTasks();
-    await renderSelectedTask();
-    await loadStats();
-  } catch (e) { flash(e.message, true); }
-}
-
-async function loadTaskHistory() {
-  try {
-    const history = await api(`/tasks/${selectedTask.id}/history`);
-    const box = document.getElementById("historyBox");
-    box.innerHTML = history.length
-      ? history.map(h => `<div class="item" style="margin-top:8px">
-          <strong>${esc(h.old_status || "created")} → ${esc(h.new_status)}</strong>
-          <div class="meta">${esc(new Date(h.changed_at).toLocaleString())} • by ${esc(h.changed_by)}</div>
-        </div>`).join("")
-      : `<div class="muted">No history.</div>`;
-  } catch (e) { flash(e.message, true); }
-}
-
-async function loadMembers() {
-  const projectId = document.getElementById("memberProject").value;
-  if (!projectId) return;
-  try {
-    const members = await api(`/projects/${projectId}/members`);
-    const list = document.getElementById("memberList");
-    if (!members.length) {
-      list.innerHTML = `<div class="muted">No members.</div>`;
-      return;
+        setTimeout(() => {
+            element.classList.add("hidden");
+        }, 4000);
     }
-    list.innerHTML = members.map(m => `
-      <div class="item">
-        <div class="item-title">${esc(m.user_id)}</div>
-        <div class="meta"><span class="pill">${esc(m.project_role)}</span> joined ${esc(new Date(m.joined_at).toLocaleString())}</div>
-      </div>
-    `).join("");
-  } catch (e) { flash(e.message, true); }
-}
 
-async function addMember() {
-  try {
-    const projectId = document.getElementById("memberProject").value;
-    const email = document.getElementById("memberEmail").value.trim();
-    const role = document.getElementById("memberRole").value;
-    const user = await api(`/users/lookup?email=${encodeURIComponent(email)}`);
-    await api(`/projects/${projectId}/members`, {
-      method:"POST",
-      body:JSON.stringify({user_id:user.id, project_role:role})
-    });
-    flash(`Added ${user.name} as ${role}.`);
-    document.getElementById("memberEmail").value = "";
-    await loadMembers();
-  } catch (e) { flash(e.message, true); }
-}
 
-async function populateCommentTasks() {
-  const projectId = document.getElementById("commentProject").value;
-  if (!projectId) return;
-  try {
-    const projectTasks = await api(`/tasks/project/${projectId}`);
-    document.getElementById("commentTask").innerHTML =
-      projectTasks.map(t => `<option value="${esc(t.id)}">${esc(t.title)}</option>`).join("");
-    await loadComments();
-  } catch (e) { flash(e.message, true); }
-}
+    function showLogin() {
 
-async function loadComments() {
-  const taskId = document.getElementById("commentTask").value;
-  if (!taskId) {
-    document.getElementById("commentList").innerHTML = "";
-    return;
-  }
-  try {
-    const comments = await api(`/comments/task/${taskId}`);
-    const render = nodes => nodes.map(c => `
-      <div class="comment">
-        <div><strong>${esc(c.user_id)}</strong> <span class="meta">${esc(new Date(c.created_at).toLocaleString())}</span></div>
-        <div style="margin-top:4px">${esc(c.content)}</div>
-        ${c.replies?.length ? `<div class="reply">${render(c.replies)}</div>` : ""}
-      </div>
-    `).join("");
-    document.getElementById("commentList").innerHTML =
-      comments.length ? render(comments) : `<div class="muted">No comments yet.</div>`;
-  } catch (e) { flash(e.message, true); }
-}
+        document
+            .getElementById("registerScreen")
+            .classList.add("hidden");
 
-async function addComment() {
-  try {
-    const taskId = document.getElementById("commentTask").value;
-    const content = document.getElementById("commentText").value.trim();
-    if (!content) return;
-    await api("/comments/", {
-      method:"POST",
-      body:JSON.stringify({task_id:taskId, content})
-    });
-    document.getElementById("commentText").value = "";
-    flash("Comment added.");
-    await loadComments();
-  } catch (e) { flash(e.message, true); }
-}
+        document
+            .getElementById("loginScreen")
+            .classList.remove("hidden");
 
-async function loadStats() {
-  const projectId = document.getElementById("statsProject").value;
-  if (!projectId) return;
-  try {
-    const s = await api(`/projects/${projectId}/stats`);
-    document.getElementById("statsBox").innerHTML = `
-      <div class="stats">
-        <div class="stat"><strong>${esc(s.total_tasks)}</strong><span>Total tasks</span></div>
-        <div class="stat"><strong>${esc(s.overdue_tasks)}</strong><span>Overdue</span></div>
-        ${Object.entries(s.tasks_by_status).slice(0,2).map(([k,v]) =>
-          `<div class="stat"><strong>${esc(v)}</strong><span>${esc(k)}</span></div>`
-        ).join("")}
-      </div>
-      <div class="item" style="margin-top:12px">
-        ${Object.entries(s.tasks_by_status).map(([k,v]) =>
-          `<span class="pill gray">${esc(k)}: ${esc(v)}</span>`
-        ).join("")}
-      </div>
-    `;
-  } catch (e) { flash(e.message, true); }
-}
+    }
 
-async function loadAssignedCount() {
-  try {
-    const assigned = await api("/tasks/assigned/me");
-    document.getElementById("assignedCount").textContent = assigned.length;
-  } catch {
-    document.getElementById("assignedCount").textContent = "—";
-  }
-}
 
-(async function init() {
-  if (token) {
-    try { await bootApp(); }
-    catch { logout(); }
-  }
-})();
+    function showRegister() {
+
+        document
+            .getElementById("loginScreen")
+            .classList.add("hidden");
+
+        document
+            .getElementById("registerScreen")
+            .classList.remove("hidden");
+
+    }
+
+
+    async function apiRequest(
+        endpoint,
+        options = {}
+    ) {
+
+        const headers =
+            options.headers || {};
+
+        headers["Content-Type"] =
+            "application/json";
+
+        if (token) {
+
+            headers["Authorization"] =
+                `Bearer ${token}`;
+
+        }
+
+        const response =
+            await fetch(
+                API + endpoint,
+                {
+                    ...options,
+                    headers
+                }
+            );
+
+        const text =
+            await response.text();
+
+        let data = null;
+
+        try {
+
+            data =
+                text
+                    ? JSON.parse(text)
+                    : null;
+
+        } catch {
+
+            data = text;
+
+        }
+
+        if (!response.ok) {
+
+            const error =
+                data?.detail ||
+                "Request failed";
+
+            throw new Error(error);
+
+        }
+
+        return data;
+
+    }
+
+
+    async function register() {
+
+        try {
+
+            const body = {
+
+                name:
+                    document
+                    .getElementById("registerName")
+                    .value
+                    .trim(),
+
+                email:
+                    document
+                    .getElementById("registerEmail")
+                    .value
+                    .trim(),
+
+                password:
+                    document
+                    .getElementById("registerPassword")
+                    .value
+
+            };
+
+
+            await apiRequest(
+                "/auth/register",
+                {
+                    method: "POST",
+                    body:
+                        JSON.stringify(body)
+                }
+            );
+
+
+            showMessage(
+                "Registration successful. Please login."
+            );
+
+
+            document
+                .getElementById("loginEmail")
+                .value =
+                body.email;
+
+            document
+                .getElementById("loginPassword")
+                .value =
+                body.password;
+
+
+            showLogin();
+
+        } catch (error) {
+
+            showMessage(
+                error.message,
+                true
+            );
+
+        }
+
+    }
+
+
+    async function login() {
+
+        try {
+
+            const email =
+                document
+                .getElementById("loginEmail")
+                .value
+                .trim();
+
+            const password =
+                document
+                .getElementById("loginPassword")
+                .value;
+
+
+            const body =
+                new URLSearchParams();
+
+            body.append(
+                "username",
+                email
+            );
+
+            body.append(
+                "password",
+                password
+            );
+
+
+            const response =
+                await fetch(
+                    "/auth/login",
+                    {
+                        method: "POST",
+                        headers: {
+                            "Content-Type":
+                                "application/x-www-form-urlencoded"
+                        },
+                        body
+                    }
+                );
+
+
+            const data =
+                await response.json();
+
+
+            if (!response.ok) {
+
+                throw new Error(
+                    data.detail ||
+                    "Login failed"
+                );
+
+            }
+
+
+            token =
+                data.access_token;
+
+
+            localStorage.setItem(
+                "access_token",
+                token
+            );
+
+
+            await loadApplication();
+
+        } catch (error) {
+
+            showMessage(
+                error.message,
+                true
+            );
+
+        }
+
+    }
+
+
+    async function loadApplication() {
+
+        try {
+
+            currentUser =
+                await apiRequest(
+                    "/users/me"
+                );
+
+
+            document
+                .getElementById("loginScreen")
+                .classList.add("hidden");
+
+            document
+                .getElementById("registerScreen")
+                .classList.add("hidden");
+
+            document
+                .getElementById("appScreen")
+                .classList.remove("hidden");
+
+            document
+                .getElementById("logoutButton")
+                .classList.remove("hidden");
+
+
+            document
+                .getElementById("headerUser")
+                .textContent =
+                `${currentUser.name} • ${currentUser.global_role}`;
+
+
+            document
+                .getElementById("currentUser")
+                .innerHTML =
+                `
+                    <strong>
+                        ${currentUser.name}
+                    </strong>
+                    <br>
+
+                    ${currentUser.email}
+                    <br>
+
+                    <span class="pill">
+                        ${currentUser.global_role}
+                    </span>
+                `;
+
+
+            await loadProjects();
+
+            await loadAssignedTasks();
+
+            await populateProjectSelectors();
+
+        } catch (error) {
+
+            logout();
+
+        }
+
+    }
+
+
+    function logout() {
+
+        token = null;
+
+        localStorage.removeItem(
+            "access_token"
+        );
+
+
+        document
+            .getElementById("appScreen")
+            .classList.add("hidden");
+
+        document
+            .getElementById("logoutButton")
+            .classList.add("hidden");
+
+
+        document
+            .getElementById("headerUser")
+            .textContent =
+            "Not logged in";
+
+
+        showLogin();
+
+    }
+
+
+    function showTab(
+        tabName,
+        button
+    ) {
+
+        document
+            .querySelectorAll(
+                "[id$='Tab']"
+            )
+            .forEach(
+                element =>
+                    element.classList.add(
+                        "hidden"
+                    )
+            );
+
+
+        document
+            .getElementById(
+                tabName + "Tab"
+            )
+            .classList.remove(
+                "hidden"
+            );
+
+
+        document
+            .querySelectorAll(".tab")
+            .forEach(
+                element =>
+                    element.classList.remove(
+                        "active"
+                    )
+            );
+
+
+        button.classList.add(
+            "active"
+        );
+
+    }
+
+
+    async function loadProjects() {
+
+        projects =
+            await apiRequest(
+                "/projects/"
+            );
+
+
+        document
+            .getElementById(
+                "projectCount"
+            )
+            .textContent =
+            projects.length;
+
+
+        const list =
+            document
+            .getElementById(
+                "projectList"
+            );
+
+
+        if (!projects.length) {
+
+            list.innerHTML =
+                `
+                    <div class="muted">
+                        No projects yet.
+                    </div>
+                `;
+
+            return;
+
+        }
+
+
+        list.innerHTML =
+            projects
+            .map(
+                project =>
+                    `
+                    <div class="item">
+
+                        <div class="item-title">
+                            ${project.name}
+                        </div>
+
+                        <div class="muted">
+                            ${project.description || "No description"}
+                        </div>
+
+                        <span class="pill">
+                            ${project.status}
+                        </span>
+
+                    </div>
+                    `
+            )
+            .join("");
+
+    }
+
+
+    async function createProject() {
+
+        try {
+
+            const body = {
+
+                name:
+                    document
+                    .getElementById(
+                        "projectName"
+                    )
+                    .value
+                    .trim(),
+
+                description:
+                    document
+                    .getElementById(
+                        "projectDescription"
+                    )
+                    .value
+                    .trim() || null
+
+            };
+
+
+            await apiRequest(
+                "/projects/",
+                {
+                    method: "POST",
+                    body:
+                        JSON.stringify(body)
+                }
+            );
+
+
+            showMessage(
+                "Project created."
+            );
+
+
+            await loadProjects();
+
+            await populateProjectSelectors();
+
+
+        } catch (error) {
+
+            showMessage(
+                error.message,
+                true
+            );
+
+        }
+
+    }
+
+
+    function populateSelect(
+        id
+    ) {
+
+        const select =
+            document.getElementById(id);
+
+
+        select.innerHTML =
+            projects
+            .map(
+                project =>
+                    `
+                    <option value="${project.id}">
+                        ${project.name}
+                    </option>
+                    `
+            )
+            .join("");
+
+    }
+
+
+    async function populateProjectSelectors() {
+
+        [
+            "taskProject",
+            "taskProjectFilter",
+            "memberProject",
+            "commentProject",
+            "statsProject"
+        ]
+        .forEach(populateSelect);
+
+
+        if (!projects.length) {
+
+            return;
+
+        }
+
+
+        await loadTasks();
+
+        await loadMembers();
+
+        await loadCommentTasks();
+
+        await loadStats();
+
+    }
+
+
+    async function createTask() {
+
+        try {
+
+            const body = {
+
+                project_id:
+                    document
+                    .getElementById(
+                        "taskProject"
+                    )
+                    .value,
+
+                title:
+                    document
+                    .getElementById(
+                        "taskTitle"
+                    )
+                    .value
+                    .trim(),
+
+                description:
+                    document
+                    .getElementById(
+                        "taskDescription"
+                    )
+                    .value
+                    .trim() || null,
+
+                priority:
+                    document
+                    .getElementById(
+                        "taskPriority"
+                    )
+                    .value,
+
+                due_date:
+                    document
+                    .getElementById(
+                        "taskDueDate"
+                    )
+                    .value || null
+
+            };
+
+
+            await apiRequest(
+                "/tasks/",
+                {
+                    method: "POST",
+                    body:
+                        JSON.stringify(body)
+                }
+            );
+
+
+            showMessage(
+                "Task created."
+            );
+
+
+            await loadTasks();
+
+            await loadStats();
+
+            await loadAssignedTasks();
+
+        } catch (error) {
+
+            showMessage(
+                error.message,
+                true
+            );
+
+        }
+
+    }
+
+
+    async function loadTasks() {
+
+        const projectId =
+            document
+            .getElementById(
+                "taskProjectFilter"
+            )
+            .value;
+
+
+        if (!projectId) {
+
+            return;
+
+        }
+
+
+        tasks =
+            await apiRequest(
+                `/tasks/project/${projectId}`
+            );
+
+
+        const list =
+            document
+            .getElementById(
+                "taskList"
+            );
+
+
+        if (!tasks.length) {
+
+            list.innerHTML =
+                `
+                    <div class="muted">
+                        No tasks in this project.
+                    </div>
+                `;
+
+            return;
+
+        }
+
+
+        list.innerHTML =
+            tasks
+            .map(
+                task =>
+                    `
+                    <div
+                        class="item"
+                        onclick="selectTask('${task.id}')"
+                        style="cursor:pointer;"
+                    >
+
+                        <div class="item-title">
+                            ${task.title}
+                        </div>
+
+                        <div class="muted">
+                            ${task.priority}
+                        </div>
+
+                        <span class="pill">
+                            ${task.status}
+                        </span>
+
+                    </div>
+                    `
+            )
+            .join("");
+
+    }
+
+
+    async function selectTask(id) {
+
+        selectedTaskId = id;
+
+        const task =
+            await apiRequest(
+                `/tasks/${id}`
+            );
+
+
+        const box =
+            document
+            .getElementById(
+                "selectedTask"
+            );
+
+
+        box.innerHTML =
+            `
+                <h3>
+                    ${task.title}
+                </h3>
+
+                <p class="muted">
+                    ${task.description || "No description"}
+                </p>
+
+                <p>
+                    Current status:
+                    <span class="pill">
+                        ${task.status}
+                    </span>
+                </p>
+
+                <label>
+                    Change Status
+                </label>
+
+                <select id="newStatus">
+
+                    <option value="todo">
+                        todo
+                    </option>
+
+                    <option value="in_progress">
+                        in_progress
+                    </option>
+
+                    <option value="in_review">
+                        in_review
+                    </option>
+
+                    <option value="done">
+                        done
+                    </option>
+
+                    <option value="blocked">
+                        blocked
+                    </option>
+
+                </select>
+
+                <button
+                    onclick="updateTaskStatus()"
+                >
+                    Update Status
+                </button>
+
+                <button
+                    class="secondary"
+                    onclick="loadTaskHistory()"
+                >
+                    View Status History
+                </button>
+
+                <div
+                    id="taskHistory"
+                    style="margin-top:15px;"
+                ></div>
+            `;
+
+
+        document
+            .getElementById(
+                "newStatus"
+            )
+            .value =
+            task.status;
+
+    }
+
+
+    async function updateTaskStatus() {
+
+        try {
+
+            const status =
+                document
+                .getElementById(
+                    "newStatus"
+                )
+                .value;
+
+
+            await apiRequest(
+                `/tasks/${selectedTaskId}`,
+                {
+                    method: "PATCH",
+                    body:
+                        JSON.stringify({
+                            status
+                        })
+                }
+            );
+
+
+            showMessage(
+                "Task status updated."
+            );
+
+
+            await loadTasks();
+
+            await loadStats();
+
+        } catch (error) {
+
+            showMessage(
+                error.message,
+                true
+            );
+
+        }
+
+    }
+
+
+    async function loadTaskHistory() {
+
+        try {
+
+            const history =
+                await apiRequest(
+                    `/tasks/${selectedTaskId}/history`
+                );
+
+
+            const box =
+                document
+                .getElementById(
+                    "taskHistory"
+                );
+
+
+            if (!history.length) {
+
+                box.innerHTML =
+                    `
+                        <div class="muted">
+                            No status history.
+                        </div>
+                    `;
+
+                return;
+
+            }
+
+
+            box.innerHTML =
+                history
+                .map(
+                    entry =>
+                        `
+                        <div class="item">
+
+                            <strong>
+                                ${entry.old_status || "created"}
+                                →
+                                ${entry.new_status}
+                            </strong>
+
+                            <div class="muted">
+                                ${entry.changed_at}
+                            </div>
+
+                        </div>
+                        `
+                )
+                .join("");
+
+
+        } catch (error) {
+
+            showMessage(
+                error.message,
+                true
+            );
+
+        }
+
+    }
+
+
+    async function loadMembers() {
+
+        const projectId =
+            document
+            .getElementById(
+                "memberProject"
+            )
+            .value;
+
+
+        if (!projectId) {
+
+            return;
+
+        }
+
+
+        try {
+
+            const members =
+                await apiRequest(
+                    `/projects/${projectId}/members`
+                );
+
+
+            const list =
+                document
+                .getElementById(
+                    "memberList"
+                );
+
+
+            list.innerHTML =
+                members
+                .map(
+                    member =>
+                        `
+                        <div class="item">
+
+                            <div class="item-title">
+                                ${member.user_id}
+                            </div>
+
+                            <span class="pill">
+                                ${member.project_role}
+                            </span>
+
+                        </div>
+                        `
+                )
+                .join("");
+
+
+        } catch (error) {
+
+            document
+                .getElementById(
+                    "memberList"
+                )
+                .innerHTML =
+                `
+                    <div class="muted">
+                        ${error.message}
+                    </div>
+                `;
+
+        }
+
+    }
+
+
+    async function addMember() {
+
+        try {
+
+            const projectId =
+                document
+                .getElementById(
+                    "memberProject"
+                )
+                .value;
+
+
+            const body = {
+
+                user_id:
+                    document
+                    .getElementById(
+                        "memberUserId"
+                    )
+                    .value
+                    .trim(),
+
+                project_role:
+                    document
+                    .getElementById(
+                        "memberRole"
+                    )
+                    .value
+
+            };
+
+
+            await apiRequest(
+                `/projects/${projectId}/members`,
+                {
+                    method: "POST",
+                    body:
+                        JSON.stringify(body)
+                }
+            );
+
+
+            showMessage(
+                "Member added."
+            );
+
+
+            await loadMembers();
+
+
+        } catch (error) {
+
+            showMessage(
+                error.message,
+                true
+            );
+
+        }
+
+    }
+
+
+    async function loadCommentTasks() {
+
+        const projectId =
+            document
+            .getElementById(
+                "commentProject"
+            )
+            .value;
+
+
+        if (!projectId) {
+
+            return;
+
+        }
+
+
+        const projectTasks =
+            await apiRequest(
+                `/tasks/project/${projectId}`
+            );
+
+
+        const select =
+            document
+            .getElementById(
+                "commentTask"
+            );
+
+
+        select.innerHTML =
+            projectTasks
+            .map(
+                task =>
+                    `
+                    <option value="${task.id}">
+                        ${task.title}
+                    </option>
+                    `
+            )
+            .join("");
+
+
+        await loadComments();
+
+    }
+
+
+    async function loadComments() {
+
+        const taskId =
+            document
+            .getElementById(
+                "commentTask"
+            )
+            .value;
+
+
+        if (!taskId) {
+
+            return;
+
+        }
+
+
+        const comments =
+            await apiRequest(
+                `/comments/task/${taskId}`
+            );
+
+
+        const list =
+            document
+            .getElementById(
+                "commentList"
+            );
+
+
+        if (!comments.length) {
+
+            list.innerHTML =
+                `
+                    <div class="muted">
+                        No comments.
+                    </div>
+                `;
+
+            return;
+
+        }
+
+
+        list.innerHTML =
+            comments
+            .map(
+                comment =>
+                    `
+                    <div class="item">
+
+                        <strong>
+                            ${comment.user_id}
+                        </strong>
+
+                        <p>
+                            ${comment.content}
+                        </p>
+
+                        <div class="muted">
+                            ${comment.created_at}
+                        </div>
+
+                    </div>
+                    `
+            )
+            .join("");
+
+    }
+
+
+    async function addComment() {
+
+        try {
+
+            const taskId =
+                document
+                .getElementById(
+                    "commentTask"
+                )
+                .value;
+
+
+            const content =
+                document
+                .getElementById(
+                    "commentText"
+                )
+                .value
+                .trim();
+
+
+            await apiRequest(
+                "/comments/",
+                {
+                    method: "POST",
+                    body:
+                        JSON.stringify({
+                            task_id: taskId,
+                            content
+                        })
+                }
+            );
+
+
+            document
+                .getElementById(
+                    "commentText"
+                )
+                .value = "";
+
+
+            showMessage(
+                "Comment added."
+            );
+
+
+            await loadComments();
+
+
+        } catch (error) {
+
+            showMessage(
+                error.message,
+                true
+            );
+
+        }
+
+    }
+
+
+    async function loadStats() {
+
+        const projectId =
+            document
+            .getElementById(
+                "statsProject"
+            )
+            .value;
+
+
+        if (!projectId) {
+
+            return;
+
+        }
+
+
+        try {
+
+            const stats =
+                await apiRequest(
+                    `/projects/${projectId}/stats`
+                );
+
+
+            let html = `
+                <div class="stat-grid">
+
+                    <div class="stat">
+                        <strong>
+                            ${stats.total_tasks}
+                        </strong>
+                        Total Tasks
+                    </div>
+
+                    <div class="stat">
+                        <strong>
+                            ${stats.overdue_tasks}
+                        </strong>
+                        Overdue
+                    </div>
+            `;
+
+
+            for (
+                const [status, count]
+                of Object.entries(
+                    stats.tasks_by_status
+                )
+            ) {
+
+                html += `
+                    <div class="stat">
+                        <strong>
+                            ${count}
+                        </strong>
+                        ${status}
+                    </div>
+                `;
+
+            }
+
+
+            html += `
+                </div>
+            `;
+
+
+            document
+                .getElementById(
+                    "stats"
+                )
+                .innerHTML =
+                html;
+
+
+        } catch (error) {
+
+            showMessage(
+                error.message,
+                true
+            );
+
+        }
+
+    }
+
+
+    async function loadAssignedTasks() {
+
+        try {
+
+            const assigned =
+                await apiRequest(
+                    "/tasks/assigned/me"
+                );
+
+
+            document
+                .getElementById(
+                    "assignedTaskCount"
+                )
+                .textContent =
+                assigned.length;
+
+        } catch {
+
+            document
+                .getElementById(
+                    "assignedTaskCount"
+                )
+                .textContent =
+                "0";
+
+        }
+
+    }
+
+
+    /*
+        Start on LOGIN by default.
+        If a valid token already exists,
+        automatically load the application.
+    */
+
+    window.addEventListener(
+        "load",
+        async () => {
+
+            if (token) {
+
+                try {
+
+                    await loadApplication();
+
+                } catch {
+
+                    logout();
+
+                }
+
+            } else {
+
+                showLogin();
+
+            }
+
+        }
+    );
+
 </script>
+
 </body>
 </html>
