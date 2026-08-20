@@ -6,7 +6,7 @@ from app.models.comment import Comment
 from app.models.task import Task
 from app.models.project_member import ProjectRole
 from app.models.user import User, GlobalRole
-from app.schemas.comment import CommentCreate, CommentUpdate, CommentOut
+from app.schemas.comment import CommentCreate, CommentUpdate, CommentOut, CommentTreeOut
 from app.api.deps import get_current_user, require_project_role
 
 router = APIRouter(prefix="/comments", tags=["comments"])
@@ -47,7 +47,7 @@ def create_comment(
     return new_comment
 
 
-@router.get("/task/{task_id}", response_model=List[CommentOut])
+@router.get("/task/{task_id}", response_model=List[CommentTreeOut])
 def list_comments_for_task(
     task_id: str,
     db: Session = Depends(get_db),
@@ -55,7 +55,40 @@ def list_comments_for_task(
 ):
     task = _get_task_or_404(db, task_id)
     require_project_role(db, current_user, task.project_id, ProjectRole.viewer)
-    return db.query(Comment).filter(Comment.task_id == task_id).order_by(Comment.created_at).all()
+
+    all_comments = (
+        db.query(Comment).filter(Comment.task_id == task_id).order_by(Comment.created_at).all()
+    )
+
+    # Build the reply tree in one pass: wrap each ORM row, then attach
+    # each comment under its parent's "replies" list. Top-level comments
+    # (parent_comment_id is None) are what we hand back.
+    # Build manually rather than CommentTreeOut.model_validate(c): the ORM
+    # Comment model already has its own "replies" backref (self-referential
+    # relationship), which would collide with and override our tree's
+    # "replies" list if we let from_attributes pull it in directly.
+    nodes = {
+        c.id: CommentTreeOut(
+            id=c.id,
+            task_id=c.task_id,
+            user_id=c.user_id,
+            parent_comment_id=c.parent_comment_id,
+            content=c.content,
+            created_at=c.created_at,
+            updated_at=c.updated_at,
+            replies=[],
+        )
+        for c in all_comments
+    }
+    roots: List[CommentTreeOut] = []
+    for comment in all_comments:
+        node = nodes[comment.id]
+        if comment.parent_comment_id and comment.parent_comment_id in nodes:
+            nodes[comment.parent_comment_id].replies.append(node)
+        else:
+            roots.append(node)
+
+    return roots
 
 
 @router.patch("/{comment_id}", response_model=CommentOut)

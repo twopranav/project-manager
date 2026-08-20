@@ -1,14 +1,14 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 from app.db.session import get_db
-from app.models.task import Task
+from app.models.task import Task, TaskStatus, TaskPriority
 from app.models.task_assignee import TaskAssignee
 from app.models.task_status_history import TaskStatusHistory
 from app.models.comment import Comment
 from app.models.project_member import ProjectRole, ProjectMember
 from app.models.user import User
-from app.schemas.task import TaskCreate, TaskUpdate, TaskOut
+from app.schemas.task import TaskCreate, TaskUpdate, TaskOut, TaskStatusHistoryOut
 from app.api.deps import get_current_user, require_project_role
 
 router = APIRouter(prefix="/tasks", tags=["tasks"])
@@ -61,9 +61,30 @@ def list_tasks_for_project(
     project_id: str,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    status_: Optional[TaskStatus] = Query(default=None, alias="status"),
+    priority: Optional[TaskPriority] = Query(default=None),
+    assignee_id: Optional[str] = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=200),
+    offset: int = Query(default=0, ge=0),
 ):
     require_project_role(db, current_user, project_id, ProjectRole.viewer)
-    return db.query(Task).filter(Task.project_id == project_id).all()
+
+    query = db.query(Task).filter(Task.project_id == project_id)
+    if status_ is not None:
+        query = query.filter(Task.status == status_)
+    if priority is not None:
+        query = query.filter(Task.priority == priority)
+    if assignee_id is not None:
+        query = query.join(TaskAssignee, TaskAssignee.task_id == Task.id).filter(
+            TaskAssignee.user_id == assignee_id
+        )
+
+    return (
+        query.order_by(Task.created_at.desc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
 
 
 @router.get("/assigned/me", response_model=List[TaskOut])
@@ -89,6 +110,22 @@ def get_task(
     task = _get_task_or_404(db, task_id)
     require_project_role(db, current_user, task.project_id, ProjectRole.viewer)
     return task
+
+
+@router.get("/{task_id}/history", response_model=List[TaskStatusHistoryOut])
+def get_task_status_history(
+    task_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    task = _get_task_or_404(db, task_id)
+    require_project_role(db, current_user, task.project_id, ProjectRole.viewer)
+    return (
+        db.query(TaskStatusHistory)
+        .filter(TaskStatusHistory.task_id == task_id)
+        .order_by(TaskStatusHistory.changed_at)
+        .all()
+    )
 
 
 @router.patch("/{task_id}", response_model=TaskOut)

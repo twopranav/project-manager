@@ -2,7 +2,7 @@
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session
 from app.db.session import get_db
-from app.models.user import User
+from app.models.user import User, GlobalRole
 from app.schemas.user import UserCreate, UserOut
 from app.schemas.token import Token
 from app.core.security import hash_password, verify_password, create_access_token
@@ -15,10 +15,17 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
 
+    # Bootstrap problem: GlobalRole defaults to "member" and there's no
+    # other way to create the first site admin. The very first account
+    # ever registered becomes the global admin; everyone after that is
+    # a regular member (promotions from there happen via a site admin).
+    is_first_user = db.query(User.id).first() is None
+
     new_user = User(
         name=user_in.name,
         email=user_in.email,
         password_hash=hash_password(user_in.password),
+        global_role=GlobalRole.admin if is_first_user else GlobalRole.member,
     )
     db.add(new_user)
     db.commit()

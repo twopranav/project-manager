@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr
 from datetime import datetime
+from typing import Optional
 from app.models.user import GlobalRole
 
 class UserBase(BaseModel):
@@ -15,3 +16,12 @@ class UserOut(UserBase):
     created_at: datetime
     class Config:
         from_attributes = True
+
+
+class UserUpdate(BaseModel):
+    name: Optional[str] = None
+    password: Optional[str] = None
+
+
+class UserGlobalRoleUpdate(BaseModel):
+    global_role: GlobalRole
