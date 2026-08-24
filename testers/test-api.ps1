@@ -265,20 +265,11 @@ Invoke-ApiTest -Name "PATCH own profile updates name (Alice)" -Method PATCH -End
     -Headers $aliceAuth -Body @{ name = $newAliceName } `
     -Validate { param($r) if ($r.name -ne $newAliceName) { throw "name was not updated" } }
 
-$bobLookup = Invoke-ApiTest -Name "Look up Bob by email" -Method GET -Endpoint "/users/lookup?email=$([uri]::EscapeDataString($bobEmail))" -ExpectedStatus 200 `
-    -Headers $aliceAuth
-$bobId = $bobLookup.id
-
-$carolLookup = Invoke-ApiTest -Name "Look up Carol by email" -Method GET -Endpoint "/users/lookup?email=$([uri]::EscapeDataString($carolEmail))" -ExpectedStatus 200 `
-    -Headers $aliceAuth
-$carolId = $carolLookup.id
-
-$daveLookup = Invoke-ApiTest -Name "Look up Dave by email" -Method GET -Endpoint "/users/lookup?email=$([uri]::EscapeDataString($daveEmail))" -ExpectedStatus 200 `
-    -Headers $aliceAuth
-$daveId = $daveLookup.id
-
-Invoke-ApiTest -Name "Non-site-admin cannot change global roles" -Method PATCH -Endpoint "/users/$bobId/role" -ExpectedStatus 403 `
-    -Headers $bobAuth -Body @{ global_role = "admin" }
+# NOTE: /users/lookup now requires the caller to hold manager/admin rank in
+# at least one project (or be a site admin). Alice doesn't have that yet at
+# this point -- she hasn't created a project. Those lookups (and the
+# role-change test below, which needs a real $bobId) have moved to Phase 3,
+# right after Alice creates project A and becomes its admin.
 
 # ===========================================================================
 # PHASE 2 - Projects & project-name uniqueness
@@ -317,6 +308,24 @@ Invoke-ApiTest -Name "Renaming project to a name already in use is rejected" -Me
 # ===========================================================================
 Write-Host ""
 Write-Host "--- Phase 3: Project Membership ---" -ForegroundColor Magenta
+
+# Alice became project A's admin the moment she created it (Phase 2), so she
+# now has manager-tier standing on at least one project -- /users/lookup will
+# 200 for her. This must happen here, not in Phase 1, or it 403s.
+$bobLookup = Invoke-ApiTest -Name "Look up Bob by email" -Method GET -Endpoint "/users/lookup?email=$([uri]::EscapeDataString($bobEmail))" -ExpectedStatus 200 `
+    -Headers $aliceAuth
+$bobId = $bobLookup.id
+
+$carolLookup = Invoke-ApiTest -Name "Look up Carol by email" -Method GET -Endpoint "/users/lookup?email=$([uri]::EscapeDataString($carolEmail))" -ExpectedStatus 200 `
+    -Headers $aliceAuth
+$carolId = $carolLookup.id
+
+$daveLookup = Invoke-ApiTest -Name "Look up Dave by email" -Method GET -Endpoint "/users/lookup?email=$([uri]::EscapeDataString($daveEmail))" -ExpectedStatus 200 `
+    -Headers $aliceAuth
+$daveId = $daveLookup.id
+
+Invoke-ApiTest -Name "Non-site-admin cannot change global roles" -Method PATCH -Endpoint "/users/$bobId/role" -ExpectedStatus 403 `
+    -Headers $bobAuth -Body @{ global_role = "admin" }
 
 Invoke-ApiTest -Name "Add Bob to project A as contributor" -Method POST -Endpoint "/projects/$projectAId/members" -ExpectedStatus 201 `
     -Headers $aliceAuth -Body @{ user_id = $bobId; project_role = "contributor" }
@@ -451,7 +460,7 @@ if ($RunAdminTests) {
     $adminToken = Get-LoginToken -Email $AdminEmail -Name "Admin (bootstrap)" -Password $AdminPassword
     $adminAuth  = Get-AuthHeader $adminToken
 
-    # Phase 1's "Non-site-admin cannot change global roles" test (Bob trying
+    # Phase 3's "Non-site-admin cannot change global roles" test (Bob trying
     # to set his own role) already wrote a real, resolvable SecurityAlert --
     # reuse it instead of needing to manufacture one here.
     $alertsResp = Invoke-ApiTest -Name "Site admin can list unresolved security alerts" -Method GET -Endpoint "/admin/alerts?include_resolved=false" -ExpectedStatus 200 `
@@ -478,9 +487,10 @@ if ($RunAdminTests) {
     Invoke-ApiTest -Name "Resolving a nonexistent alert 404s (not 403 -- caller IS admin)" -Method PATCH -Endpoint "/admin/alerts/does-not-exist/resolve" -ExpectedStatus 404 `
         -Headers $adminAuth
 
-    Invoke-ApiTest -Name "Site admin promotes Carol to global manager" -Method PATCH -Endpoint "/users/$carolId/role" -ExpectedStatus 200 `
-        -Headers $adminAuth -Body @{ global_role = "manager" } `
-        -Validate { param($r) if ($r.global_role -ne "manager") { throw "expected global_role=manager, got $($r.global_role)" } }
+    # GlobalRole only has "admin" and "member" now -- "manager" is gone.
+    Invoke-ApiTest -Name "Site admin promotes Carol to global admin" -Method PATCH -Endpoint "/users/$carolId/role" -ExpectedStatus 200 `
+        -Headers $adminAuth -Body @{ global_role = "admin" } `
+        -Validate { param($r) if ($r.global_role -ne "admin") { throw "expected global_role=admin, got $($r.global_role)" } }
 
     Invoke-ApiTest -Name "Site admin demotes Carol back to member (cleanup)" -Method PATCH -Endpoint "/users/$carolId/role" -ExpectedStatus 200 `
         -Headers $adminAuth -Body @{ global_role = "member" } `

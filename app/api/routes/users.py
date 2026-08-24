@@ -6,6 +6,7 @@ from app.schemas.user import UserOut, UserUpdate, UserGlobalRoleUpdate
 from app.api.deps import get_current_user
 from app.core.security import hash_password
 from app.core.security_alerts import log_unauthorized_role_change
+from app.models.project_member import ProjectMember, ProjectRole
 
 # Create the router that exposes user endpoints under the /users URL prefix.
 router = APIRouter(prefix="/users", tags=["users"])
@@ -57,16 +58,26 @@ def lookup_user_by_email(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # needed so a project owner can find someone's id before adding
-    # them as a member — you can't require shared-project membership
-    # here, since that's exactly what this lookup is a prerequisite for
-# Search for the user whose email matches the supplied value.
+    # Only site admins, or anyone holding manager/admin rank in at least one
+    # project — may search by email. Plain contributors/viewers get 403.
+    # This is a global capacity check (not scoped to one project), since
+    # at lookup time there's no target project to scope it to yet.
+    is_site_admin = current_user.global_role == GlobalRole.admin
+    has_manager_somewhere = db.query(ProjectMember).filter(
+        ProjectMember.user_id == current_user.id,
+        ProjectMember.project_role.in_([ProjectRole.manager, ProjectRole.admin]),
+    ).first() is not None
+
+    if not (is_site_admin or has_manager_somewhere):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only project managers or site admins can look up users",
+        )
+
+    # Search for the user whose email matches the supplied value.
     user = db.query(User).filter(User.email == email).first()
-# Check whether the email matched an existing account.
     if not user:
-# Return HTTP 400 until another administrator has been promoted.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
-# Return the matching user record.
     return user
 
 

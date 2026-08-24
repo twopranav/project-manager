@@ -39,7 +39,6 @@ def _require_admin_or_siteadmin(db: Session, current_user: User, project_id: str
             detail="Only a project admin can grant, change, or remove the admin role",
         )
 
-
 # Define a guard that prevents a project from losing its final administrator.
 def _guard_last_admin(db: Session, project_id: str, user_id: str) -> None:
     """Raise if this change would leave the project with zero admins."""
@@ -236,12 +235,8 @@ def add_project_member(
     if member_in.project_role == ProjectRole.admin:
 # Ensure the caller is authorized to alter the admin tier.
         _require_admin_or_siteadmin(db, current_user, project_id)
-
-# Look up the user who is being added.
     target_user = db.query(User).filter(User.id == member_in.user_id).first()
-# Check whether the target user exists.
     if not target_user:
-# Return HTTP 404 when the caller is not a project member.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User to add not found")
 
 # Check whether the target user is already a member of this project.
@@ -251,7 +246,6 @@ def add_project_member(
     ).first()
 # Prevent duplicate project memberships.
     if existing:
-# Return HTTP 404 when the caller is not a project member.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is already a member of this project")
 
 # Build the new project-membership record.
