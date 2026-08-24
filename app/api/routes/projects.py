@@ -65,6 +65,10 @@ def create_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+
+# Reject project creation when the name is already used by another project & return 400
+    if db.query(Project).filter(Project.name == project_in.name).first():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A project with this name already exists")
 # Build the project record using the submitted details and current user as owner.
     new_project = Project(
 # Store the submitted project name.
@@ -151,12 +155,18 @@ def update_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # manager+ gets full CRUD on projects they manage, per spec
+# manager+ gets full CRUD on projects they manage, per spec
 # Require manager access and retrieve the target project.
     project = require_project_role(db, current_user, project_id, ProjectRole.manager)
 
 # Convert only the fields actually supplied by the caller into a dictionary.
     update_data = project_update.model_dump(exclude_unset=True)
+
+# Reject the rename when another project already uses the requested name & return 400
+    if "name" in update_data and update_data["name"] != project.name:
+        if db.query(Project).filter(Project.name == update_data["name"], Project.id != project_id).first():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A project with this name already exists")
+
 # Apply each requested project-field change dynamically.
     for field, value in update_data.items():
 # Assign the submitted value to the corresponding project attribute.

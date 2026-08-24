@@ -1,6 +1,6 @@
 import uuid, enum
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, Text, Date, DateTime, Enum, ForeignKey
+from sqlalchemy import Column, String, Text, Date, DateTime, Enum, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
 
@@ -22,6 +22,11 @@ class TaskPriority(str, enum.Enum):
 # Table representing a task; each task belongs to one project and tracks its creator, assignees, comments, and status history.
 class Task(Base):
     __tablename__ = "tasks"
+
+    # Enforce that a task's title is unique within its own project (not globally).
+    __table_args__ = (
+        UniqueConstraint("project_id", "title", name="uq_task_project_title"),
+    )
 
     # Primary key generated as a UUID string.
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))

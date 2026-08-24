@@ -17,8 +17,8 @@ class Project(Base):
     # Primary key generated as a UUID string.
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
 
-    # Required human-readable project name.
-    name = Column(String, nullable=False)
+    # Required human-readable project name; must be unique across all projects.
+    name = Column(String, nullable=False, unique=True)
 
     # Optional longer project description.
     description = Column(Text)

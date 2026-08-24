@@ -42,6 +42,10 @@ def create_task(
 # Require contributor-level access to manage task assignments.
     require_project_role(db, current_user, task_in.project_id, ProjectRole.contributor)
 
+# Reject task creation when the title is already used within this project & return 400
+    if db.query(Task).filter(Task.project_id == task_in.project_id, Task.title == task_in.title).first():
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A task with this title already exists in this project")
+
 # Build the task record from the submitted task details.
     new_task = Task(
 # Associate the task with the selected project.
@@ -200,6 +204,12 @@ def update_task(
         min_role = ProjectRole.manager  # touching title/description/priority/due_date
 # Require contributor-level access to manage task assignments.
     require_project_role(db, current_user, task.project_id, min_role)
+
+
+# Reject the rename when another task in the same project already uses the requested title & return 400
+    if "title" in update_data and update_data["title"] != task.title:
+        if db.query(Task).filter(Task.project_id == task.project_id, Task.title == update_data["title"], Task.id != task_id).first():
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A task with this title already exists in this project")
 
 # Preserve the task’s previous status so a status transition can be recorded later.
     old_status = task.status

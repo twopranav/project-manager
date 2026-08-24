@@ -1,552 +1,568 @@
-# ==========================================================================
-# Team Task Management API - full end-to-end smoke test (PowerShell)
-# Run against a locally running server: python -m uvicorn app.main:app --reload
+#Requires -Version 5.1
+<#
+.SYNOPSIS
+    End-to-end test suite for the Team Task Management API.
+
+.DESCRIPTION
+    Exercises every endpoint (auth, users, projects, tasks, comments, admin) and the
+    business rules layered on top of them (role hierarchy, project-name uniqueness,
+    per-project task-title uniqueness, "last admin" protection, etc.).
+
+    PREREQUISITES
+      - The API must already be running (default: http://localhost:8000).
+      - No site-admin account is required or created by this script: self-registration
+        always yields global_role = "member" (the site-admin role can only be granted
+        by an existing admin, or via a one-time bootstrap script run directly against
+        the DB). Every admin-only endpoint is therefore tested for its 403 response,
+        which is the only behavior a script without admin credentials can verify.
+      - Safe to re-run against a non-empty database: every email and project/task name
+        used here is stamped with the current timestamp + a random suffix, so repeat
+        runs never collide with leftover data from a previous run.
+
+.PARAMETER BaseUrl
+    Root URL of the running API. Defaults to http://localhost:8000.
+
+.PARAMETER AdminEmail
+    Email of an already-bootstrapped site-admin account. Optional -- when
+    supplied together with -AdminPassword, an extra phase runs that exercises
+    the actual 200-path behavior behind every admin-only endpoint (resolving
+    a real security alert, promoting/demoting a global role, and confirming
+    the site-admin membership bypass on GET/PATCH/list for a project the
+    admin never joined). Omit both and the script still covers every
+    admin route's 403 rejection, just not the success path behind it.
+
+.PARAMETER AdminPassword
+    Password for -AdminEmail. See above.
+
+.EXAMPLE
+    ./test_api.ps1
+    ./test_api.ps1 -BaseUrl "http://localhost:8080"
+    ./test_api.ps1 -AdminEmail "admin@yourcompany.com" -AdminPassword "correct-horse-battery-staple"
+#>
+
+param(
+    [string]$BaseUrl       = "http://localhost:8000",
+    [string]$AdminEmail    = "",
+    [string]$AdminPassword = ""
+)
+
+# Admin-only success-path tests (real role changes, real alert resolution,
+# site-admin membership bypass) only run when credentials for an already-
+# bootstrapped site admin are supplied. Without them we still cover every
+# admin route's 403 rejection, just not the 200 path behind it.
+$RunAdminTests = -not [string]::IsNullOrWhiteSpace($AdminEmail) -and -not [string]::IsNullOrWhiteSpace($AdminPassword)
+
+# ---------------------------------------------------------------------------
+# Global test-run state
+# ---------------------------------------------------------------------------
+$script:Results   = [System.Collections.Generic.List[object]]::new()
+$script:TestCount = 0
+
+# A short, collision-proof tag appended to every generated email/name so
+# reruns never collide with data left behind by a previous run.
+$script:RunTag = "{0}{1}" -f (Get-Date -Format "yyyyMMddHHmmssfff"), (Get-Random -Maximum 9999)
+
+function New-TestEmail {
+    param([string]$Prefix)
+    # IMPORTANT: avoid RFC 6761 special-use domains (.test, .example, .invalid,
+    # .localhost) -- email_validator (used by Pydantic's EmailStr) rejects
+    # those outright at validation time, before any DNS/deliverability check.
+    # ".dev" is a real, unreserved gTLD, so it passes syntax validation fine.
+    return "$Prefix.$($script:RunTag).$(Get-Random -Maximum 9999)@apiqa.dev"
+}
+
+function New-TestName {
+    param([string]$Prefix)
+    return "$Prefix $($script:RunTag) $(Get-Random -Maximum 9999)"
+}
+
+function Get-AuthHeader {
+    param([string]$Token)
+    return @{ Authorization = "Bearer $Token" }
+}
+
+# ---------------------------------------------------------------------------
+# Core test runner.
 #
-# Covers every route in the app, including the endpoints added after the
-# original test-api.ps1 was written:
-#   - PATCH /users/me
-#   - PATCH /users/{id}/role      (global admin role management)
-#   - GET  /tasks/{id}/history
-#   - GET  /tasks/project/{id}    with status / priority / assignee_id / limit / offset
-#   - GET  /projects/             with status / limit / offset
-#   - DELETE /projects/{id}/leave
-#   - GET  /comments/task/{id}    now returns a nested reply tree, not a flat list
-# ==========================================================================
+# Wraps Invoke-WebRequest so we always get a real HTTP status code back,
+# whether the call succeeds or fails (Invoke-WebRequest throws on 4xx/5xx,
+# so the failure path is handled in the catch block rather than treated as
+# a script-ending error). Records a pass/fail row for every call and prints
+# progress immediately, one line per test.
+# ---------------------------------------------------------------------------
+function Invoke-ApiTest {
+    param(
+        [Parameter(Mandatory)] [string]   $Name,
+        [Parameter(Mandatory)] [string]   $Method,
+        [Parameter(Mandatory)] [string]   $Endpoint,          # path + querystring, no host
+        [Parameter(Mandatory)] [int]      $ExpectedStatus,
+        [hashtable]      $Headers    = @{},
+        $Body                        = $null,                 # hashtable -> JSON, or raw string for form-encoded
+        [string]         $ContentType = "application/json",
+        [scriptblock]    $Validate   = $null                   # receives $parsedResponse, should throw on failure
+    )
 
-$Base = "http://127.0.0.1:8000"
-$Global:Issues = @()
-$Global:CurrentSection = "Initialization"
+    # Frame 0 is this function; frame 1 is whoever called it. Using the call
+    # stack (rather than $MyInvocation) makes it unambiguous that this is the
+    # line number of the CALL SITE in the main script, not inside this helper.
+    $callLine = (Get-PSCallStack)[1].ScriptLineNumber
 
-function Section($title) {
-    $Global:CurrentSection = $title
-    Write-Host ""
-    Write-Host "==== $title ====" -ForegroundColor Cyan
-}
+    $script:TestCount++
+    $uri = "$BaseUrl$Endpoint"
 
-function ShouldFail($title, $scriptBlock) {
-    # Wraps a call that is EXPECTED to throw (403/400/etc). Confirms it did.
+    $actualStatus    = -1
+    $parsedResponse  = $null
+    $detailMessage   = ""
+
     try {
-        & $scriptBlock
-        Write-Host "  [ISSUE] $title succeeded but should have failed!" -ForegroundColor Red
-        $Global:Issues += "[$Global:CurrentSection] $title : expected a rejection (403/400/404) but the call succeeded"
-    } catch {
-        $status = $_.Exception.Response.StatusCode.value__
-        Write-Host "  [OK] $title correctly rejected (HTTP $status)" -ForegroundColor Green
+        $webParams = @{
+            Uri             = $uri
+            Method          = $Method
+            Headers         = $Headers
+            ErrorAction     = 'Stop'
+            UseBasicParsing = $true   # avoids a Windows PowerShell 5.1 dependency on IE's parsing engine; ignored (already default) on PS7+
+        }
+        if ($null -ne $Body) {
+            if ($ContentType -eq "application/x-www-form-urlencoded") {
+                $webParams["Body"]        = $Body
+                $webParams["ContentType"] = $ContentType
+            } else {
+                $webParams["Body"]        = ($Body | ConvertTo-Json -Depth 10)
+                $webParams["ContentType"] = $ContentType
+            }
+        }
+
+        $response     = Invoke-WebRequest @webParams
+        $actualStatus = [int]$response.StatusCode
+
+        if ($response.Content) {
+            try { $parsedResponse = $response.Content | ConvertFrom-Json }
+            catch { $parsedResponse = $response.Content }
+        }
     }
+    catch {
+        # Invoke-WebRequest throws for non-2xx responses AND for connection
+        # failures. Distinguish the two: a real HTTP error carries a response
+        # object (with the status code we actually want to assert against);
+        # a connection failure does not, and is always a genuine test failure.
+        if ($_.Exception.Response) {
+            $actualStatus = [int]$_.Exception.Response.StatusCode
+            $rawContent   = $_.ErrorDetails.Message
+            if ($rawContent) {
+                try { $parsedResponse = $rawContent | ConvertFrom-Json }
+                catch { $parsedResponse = $rawContent }
+            }
+        } else {
+            $detailMessage = "Connection error: $($_.Exception.Message)"
+        }
+    }
+
+    $statusOk = ($actualStatus -eq $ExpectedStatus)
+
+    # Only run the optional body-level validation when the status already
+    # matched what we expected -- a wrong status makes body checks moot.
+    $validationOk = $true
+    if ($statusOk -and $Validate) {
+        try {
+            & $Validate $parsedResponse
+        } catch {
+            $validationOk = $false
+            $detailMessage = "Validation failed: $($_.Exception.Message)"
+        }
+    }
+
+    $passed = $statusOk -and $validationOk
+
+    if (-not $passed -and -not $detailMessage) {
+        if ($parsedResponse -is [PSCustomObject] -and $parsedResponse.detail) {
+            $detailMessage = "$($parsedResponse.detail)"
+        } elseif ($parsedResponse) {
+            $detailMessage = "$($parsedResponse)"
+        }
+    }
+
+    $result = [PSCustomObject]@{
+        TestName       = $Name
+        Line           = $callLine
+        Endpoint       = "$Method $Endpoint"
+        ExpectedStatus = $ExpectedStatus
+        ActualStatus   = $actualStatus
+        Passed         = $passed
+        Detail         = $detailMessage
+    }
+    $script:Results.Add($result)
+
+    if ($passed) {
+        Write-Host "[PASS] " -ForegroundColor Green -NoNewline
+        Write-Host "$Name  ($Method $Endpoint -> $actualStatus)"
+    } else {
+        Write-Host "[FAIL] " -ForegroundColor Red -NoNewline
+        Write-Host "$Name  (line $callLine, $Method $Endpoint -> expected $ExpectedStatus, got $actualStatus)" -ForegroundColor Red
+        if ($detailMessage) { Write-Host "        $detailMessage" -ForegroundColor DarkYellow }
+    }
+
+    return $parsedResponse
 }
 
-function Expect($title, $condition) {
-    # Asserts a boolean condition computed from a response body (counts, values, etc.)
-    if ($condition) {
-        Write-Host "  [OK] $title" -ForegroundColor Green
-    } else {
-        Write-Host "  [ISSUE] $title" -ForegroundColor Red
-        $Global:Issues += "[$Global:CurrentSection] $title : assertion failed"
-    }
+Write-Host "===================================================================" -ForegroundColor Cyan
+Write-Host " Team Task Management API - End-to-End Test Suite"                    -ForegroundColor Cyan
+Write-Host " Target: $BaseUrl"                                                    -ForegroundColor Cyan
+Write-Host "===================================================================" -ForegroundColor Cyan
+Write-Host ""
+
+# ===========================================================================
+# PHASE 1 - Registration & Auth
+# ===========================================================================
+Write-Host "--- Phase 1: Registration & Auth ---" -ForegroundColor Magenta
+
+$aliceEmail = New-TestEmail "alice"
+$bobEmail   = New-TestEmail "bob"
+$carolEmail = New-TestEmail "carol"
+$daveEmail  = New-TestEmail "dave"
+$password   = "P@ssw0rd123!"
+
+Invoke-ApiTest -Name "Register Alice" -Method POST -Endpoint "/auth/register" -ExpectedStatus 201 `
+    -Body @{ name = "Alice Admin"; email = $aliceEmail; password = $password } `
+    -Validate { param($r) if ($r.global_role -ne "member") { throw "expected global_role=member, got $($r.global_role)" } }
+
+Invoke-ApiTest -Name "Duplicate registration is rejected" -Method POST -Endpoint "/auth/register" -ExpectedStatus 400 `
+    -Body @{ name = "Alice Duplicate"; email = $aliceEmail; password = $password }
+
+Invoke-ApiTest -Name "Register Bob" -Method POST -Endpoint "/auth/register" -ExpectedStatus 201 `
+    -Body @{ name = "Bob Contributor"; email = $bobEmail; password = $password }
+
+Invoke-ApiTest -Name "Register Carol" -Method POST -Endpoint "/auth/register" -ExpectedStatus 201 `
+    -Body @{ name = "Carol Viewer"; email = $carolEmail; password = $password }
+
+Invoke-ApiTest -Name "Register Dave (never joins a project)" -Method POST -Endpoint "/auth/register" -ExpectedStatus 201 `
+    -Body @{ name = "Dave Outsider"; email = $daveEmail; password = $password }
+
+function Get-LoginToken {
+    param([string]$Email, [string]$Name, [string]$Password = $password)
+    $formBody = "username=$([uri]::EscapeDataString($Email))&password=$([uri]::EscapeDataString($Password))"
+    $resp = Invoke-ApiTest -Name "Login $Name" -Method POST -Endpoint "/auth/login" -ExpectedStatus 200 `
+        -Body $formBody -ContentType "application/x-www-form-urlencoded" `
+        -Validate { param($r) if (-not $r.access_token) { throw "no access_token in response" } }
+    return $resp.access_token
 }
 
-try {
+$aliceToken = Get-LoginToken -Email $aliceEmail -Name "Alice"
+$bobToken   = Get-LoginToken -Email $bobEmail   -Name "Bob"
+$carolToken = Get-LoginToken -Email $carolEmail -Name "Carol"
+$daveToken  = Get-LoginToken -Email $daveEmail  -Name "Dave"
 
-    # ----------------------------------------------------------------------
-    Section "1. Register two users"
-    # ----------------------------------------------------------------------
-    $ownerEmail   = "owner_$(Get-Random)@test.com"
-    $memberEmail  = "member_$(Get-Random)@test.com"
-    $password     = "TestPass123!"
+$aliceAuth = Get-AuthHeader $aliceToken
+$bobAuth   = Get-AuthHeader $bobToken
+$carolAuth = Get-AuthHeader $carolToken
+$daveAuth  = Get-AuthHeader $daveToken
 
-    $owner = Invoke-RestMethod -Method Post -Uri "$Base/auth/register" -ContentType "application/json" -Body (@{
-        name = "Project Owner"; email = $ownerEmail; password = $password
-    } | ConvertTo-Json)
-    Write-Host "  Registered owner: $($owner.email) (id: $($owner.id))"
+Invoke-ApiTest -Name "GET current profile (Alice)" -Method GET -Endpoint "/users/me" -ExpectedStatus 200 `
+    -Headers $aliceAuth `
+    -Validate { param($r) if ($r.email -ne $aliceEmail) { throw "email mismatch" } }
 
-    $member = Invoke-RestMethod -Method Post -Uri "$Base/auth/register" -ContentType "application/json" -Body (@{
-        name = "Team Member"; email = $memberEmail; password = $password
-    } | ConvertTo-Json)
-    Write-Host "  Registered member: $($member.email) (id: $($member.id))"
+$newAliceName = New-TestName "Alice Renamed"
+Invoke-ApiTest -Name "PATCH own profile updates name (Alice)" -Method PATCH -Endpoint "/users/me" -ExpectedStatus 200 `
+    -Headers $aliceAuth -Body @{ name = $newAliceName } `
+    -Validate { param($r) if ($r.name -ne $newAliceName) { throw "name was not updated" } }
 
-    # ----------------------------------------------------------------------
-    Section "2. Login as both users"
-    # ----------------------------------------------------------------------
-    # /auth/login expects OAuth2 form data (username + password), not JSON
-    $ownerLogin = Invoke-RestMethod -Method Post -Uri "$Base/auth/login" -ContentType "application/x-www-form-urlencoded" -Body @{
-        username = $ownerEmail; password = $password
-    }
-    $ownerToken = $ownerLogin.access_token
-    $ownerHeaders = @{ Authorization = "Bearer $ownerToken" }
-    Write-Host "  Owner token acquired"
+$bobLookup = Invoke-ApiTest -Name "Look up Bob by email" -Method GET -Endpoint "/users/lookup?email=$([uri]::EscapeDataString($bobEmail))" -ExpectedStatus 200 `
+    -Headers $aliceAuth
+$bobId = $bobLookup.id
 
-    $memberLogin = Invoke-RestMethod -Method Post -Uri "$Base/auth/login" -ContentType "application/x-www-form-urlencoded" -Body @{
-        username = $memberEmail; password = $password
-    }
-    $memberToken = $memberLogin.access_token
-    $memberHeaders = @{ Authorization = "Bearer $memberToken" }
-    Write-Host "  Member token acquired"
+$carolLookup = Invoke-ApiTest -Name "Look up Carol by email" -Method GET -Endpoint "/users/lookup?email=$([uri]::EscapeDataString($carolEmail))" -ExpectedStatus 200 `
+    -Headers $aliceAuth
+$carolId = $carolLookup.id
 
-    # ----------------------------------------------------------------------
-    Section "3. GET /users/me for both"
-    # ----------------------------------------------------------------------
-    $me = Invoke-RestMethod -Method Get -Uri "$Base/users/me" -Headers $ownerHeaders
-    Write-Host "  /users/me (owner) -> $($me.email), global_role: $($me.global_role)"
+$daveLookup = Invoke-ApiTest -Name "Look up Dave by email" -Method GET -Endpoint "/users/lookup?email=$([uri]::EscapeDataString($daveEmail))" -ExpectedStatus 200 `
+    -Headers $aliceAuth
+$daveId = $daveLookup.id
 
-    # ----------------------------------------------------------------------
-    Section "4. PATCH /users/me - update own profile"
-    # ----------------------------------------------------------------------
-    $updatedMe = Invoke-RestMethod -Method Patch -Uri "$Base/users/me" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-        name = "Project Owner (Updated)"
-    } | ConvertTo-Json)
-    Expect "Name updated via PATCH /users/me" ($updatedMe.name -eq "Project Owner (Updated)")
+Invoke-ApiTest -Name "Non-site-admin cannot change global roles" -Method PATCH -Endpoint "/users/$bobId/role" -ExpectedStatus 403 `
+    -Headers $bobAuth -Body @{ global_role = "admin" }
 
-    # password change + relogin proves the new password actually works
-    Invoke-RestMethod -Method Patch -Uri "$Base/users/me" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-        password = "NewPass456!"
-    } | ConvertTo-Json) | Out-Null
-    $reloginAfterPwChange = Invoke-RestMethod -Method Post -Uri "$Base/auth/login" -ContentType "application/x-www-form-urlencoded" -Body @{
-        username = $ownerEmail; password = "NewPass456!"
-    }
-    Expect "Login succeeds with new password" ($null -ne $reloginAfterPwChange.access_token)
-    $ownerToken = $reloginAfterPwChange.access_token
-    $ownerHeaders = @{ Authorization = "Bearer $ownerToken" }
+# ===========================================================================
+# PHASE 2 - Projects & project-name uniqueness
+# ===========================================================================
+Write-Host ""
+Write-Host "--- Phase 2: Projects & Name Uniqueness ---" -ForegroundColor Magenta
 
-    ShouldFail "Old password no longer works" {
-        Invoke-RestMethod -Method Post -Uri "$Base/auth/login" -ContentType "application/x-www-form-urlencoded" -Body @{
-            username = $ownerEmail; password = $password
-        }
-    }
-    # restore original password so the rest of the script's assumptions hold
-    Invoke-RestMethod -Method Patch -Uri "$Base/users/me" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-        password = $password
-    } | ConvertTo-Json) | Out-Null
+$projectAName = New-TestName "Website Relaunch"
+$projectBName = New-TestName "Mobile App"
 
-    # ----------------------------------------------------------------------
-    Section "5. Global admin role management (PATCH /users/{id}/role)"
-    # ----------------------------------------------------------------------
-    # Only the very first user ever registered on a fresh database is
-    # bootstrapped as a global admin. This branch adapts to whichever
-    # state the target DB is actually in, so the script is safe to run
-    # repeatedly against the same server.
-    if ($me.global_role -eq "admin") {
-        Write-Host "  Owner is bootstrapped as global admin - testing promotion path"
-        $promotedGlobal = Invoke-RestMethod -Method Patch -Uri "$Base/users/$($member.id)/role" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-            global_role = "manager"
-        } | ConvertTo-Json)
-        Expect "Admin promotes member to global manager" ($promotedGlobal.global_role -eq "manager")
+$projectA = Invoke-ApiTest -Name "Create project A (Alice)" -Method POST -Endpoint "/projects/" -ExpectedStatus 201 `
+    -Headers $aliceAuth -Body @{ name = $projectAName; description = "Marketing site rebuild" }
+$projectAId = $projectA.id
 
-        ShouldFail "Newly-promoted manager cannot self-promote to admin" {
-            Invoke-RestMethod -Method Patch -Uri "$Base/users/$($member.id)/role" -Headers $memberHeaders -ContentType "application/json" -Body (@{
-                global_role = "admin"
-            } | ConvertTo-Json)
-        }
+Invoke-ApiTest -Name "Project name is globally unique -- second owner blocked" -Method POST -Endpoint "/projects/" -ExpectedStatus 400 `
+    -Headers $bobAuth -Body @{ name = $projectAName; description = "Bob trying to steal the name" }
 
-        # revert so member's global role doesn't affect anything downstream
-        Invoke-RestMethod -Method Patch -Uri "$Base/users/$($member.id)/role" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-            global_role = "member"
-        } | ConvertTo-Json) | Out-Null
-    } else {
-        Write-Host "  Owner is a regular member on this run (DB already has a bootstrapped admin) - testing rejection path only"
-        ShouldFail "Non-site-admin owner cannot change roles" {
-            Invoke-RestMethod -Method Patch -Uri "$Base/users/$($member.id)/role" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-                global_role = "manager"
-            } | ConvertTo-Json)
-        }
-    }
+$projectB = Invoke-ApiTest -Name "Create project B (Bob, distinct name)" -Method POST -Endpoint "/projects/" -ExpectedStatus 201 `
+    -Headers $bobAuth -Body @{ name = $projectBName; description = "Native app work" }
+$projectBId = $projectB.id
 
-    ShouldFail "Non-site-admin member cannot change their own role" {
-        Invoke-RestMethod -Method Patch -Uri "$Base/users/$($member.id)/role" -Headers $memberHeaders -ContentType "application/json" -Body (@{
-            global_role = "admin"
-        } | ConvertTo-Json)
-    }
+Invoke-ApiTest -Name "List projects filtered by status" -Method GET -Endpoint "/projects/?status=active&limit=50&offset=0" -ExpectedStatus 200 `
+    -Headers $aliceAuth
 
-    # ----------------------------------------------------------------------
-    Section "6. Create a project (as owner)"
-    # ----------------------------------------------------------------------
-    $project = Invoke-RestMethod -Method Post -Uri "$Base/projects/" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-        name = "Launch Website"; description = "Get the new site live"
-    } | ConvertTo-Json)
-    $projectId = $project.id
-    Write-Host "  Created project: $($project.name) (id: $projectId)"
-    Write-Host ($project | ConvertTo-Json)
+Invoke-ApiTest -Name "Get project A by id" -Method GET -Endpoint "/projects/$projectAId" -ExpectedStatus 200 `
+    -Headers $aliceAuth -Validate { param($r) if ($r.name -ne $projectAName) { throw "unexpected project name" } }
 
-    # ----------------------------------------------------------------------
-    Section "7. List / filter / paginate my projects"
-    # ----------------------------------------------------------------------
-    $myProjects = Invoke-RestMethod -Method Get -Uri "$Base/projects/" -Headers $ownerHeaders
-    Write-Host "  Owner has $($myProjects.Count) project(s)"
+Invoke-ApiTest -Name "Renaming project to its own current name succeeds" -Method PATCH -Endpoint "/projects/$projectAId" -ExpectedStatus 200 `
+    -Headers $aliceAuth -Body @{ name = $projectAName }
 
-    $activeProjects = Invoke-RestMethod -Method Get -Uri "$Base/projects/?status=active" -Headers $ownerHeaders
-    $activeMatch = @($activeProjects | Where-Object { $_.id -eq $projectId })
-    Expect "status=active includes the new project" ($activeMatch.Count -eq 1)
+Invoke-ApiTest -Name "Renaming project to a name already in use is rejected" -Method PATCH -Endpoint "/projects/$projectAId" -ExpectedStatus 400 `
+    -Headers $aliceAuth -Body @{ name = $projectBName }
 
-    $archivedProjects = Invoke-RestMethod -Method Get -Uri "$Base/projects/?status=archived" -Headers $ownerHeaders
-    $archivedMatch = @($archivedProjects | Where-Object { $_.id -eq $projectId })
-    Expect "status=archived excludes the (active) new project" ($archivedMatch.Count -eq 0)
+# ===========================================================================
+# PHASE 3 - Project membership
+# ===========================================================================
+Write-Host ""
+Write-Host "--- Phase 3: Project Membership ---" -ForegroundColor Magenta
 
-    $pagedProjects = Invoke-RestMethod -Method Get -Uri "$Base/projects/?limit=1&offset=0" -Headers $ownerHeaders
-    Expect "limit=1 returns at most 1 project" ($pagedProjects.Count -le 1)
+Invoke-ApiTest -Name "Add Bob to project A as contributor" -Method POST -Endpoint "/projects/$projectAId/members" -ExpectedStatus 201 `
+    -Headers $aliceAuth -Body @{ user_id = $bobId; project_role = "contributor" }
 
-    $fetched = Invoke-RestMethod -Method Get -Uri "$Base/projects/$projectId" -Headers $ownerHeaders
-    Write-Host "  Fetched project by id: $($fetched.name)"
+Invoke-ApiTest -Name "Add Carol to project A as viewer" -Method POST -Endpoint "/projects/$projectAId/members" -ExpectedStatus 201 `
+    -Headers $aliceAuth -Body @{ user_id = $carolId; project_role = "viewer" }
 
-    # ----------------------------------------------------------------------
-    Section "8. Non-member tries to access the project -> should be 403"
-    # ----------------------------------------------------------------------
-    ShouldFail "Non-member GET /projects/{id}" {
-        Invoke-RestMethod -Method Get -Uri "$Base/projects/$projectId" -Headers $memberHeaders
-    }
+Invoke-ApiTest -Name "Adding an existing member again is rejected" -Method POST -Endpoint "/projects/$projectAId/members" -ExpectedStatus 400 `
+    -Headers $aliceAuth -Body @{ user_id = $bobId; project_role = "contributor" }
 
-    # ----------------------------------------------------------------------
-    Section "9. Look up the member by email, then add them to the project"
-    # ----------------------------------------------------------------------
-    $lookedUp = Invoke-RestMethod -Method Get -Uri "$Base/users/lookup?email=$memberEmail" -Headers $ownerHeaders
-    Write-Host "  Looked up member id: $($lookedUp.id)"
+Invoke-ApiTest -Name "List project A members shows all three" -Method GET -Endpoint "/projects/$projectAId/members" -ExpectedStatus 200 `
+    -Headers $aliceAuth -Validate { param($r) if (@($r).Count -ne 3) { throw "expected 3 members, got $(@($r).Count)" } }
 
-    $addedMember = Invoke-RestMethod -Method Post -Uri "$Base/projects/$projectId/members" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-        user_id = $lookedUp.id; project_role = "contributor"
-    } | ConvertTo-Json)
-    Write-Host "  Added member with role: $($addedMember.project_role)"
+# ===========================================================================
+# PHASE 4 - Tasks & per-project title uniqueness
+# ===========================================================================
+Write-Host ""
+Write-Host "--- Phase 4: Tasks & Title Uniqueness ---" -ForegroundColor Magenta
 
-    ShouldFail "Adding the same member twice" {
-        Invoke-RestMethod -Method Post -Uri "$Base/projects/$projectId/members" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-            user_id = $lookedUp.id; project_role = "contributor"
-        } | ConvertTo-Json)
-    }
+$sharedTaskTitle = New-TestName "Design Homepage"
+$secondTaskTitle = New-TestName "Fix Login Bug"
+$tomorrow = (Get-Date).AddDays(1).ToString("yyyy-MM-dd")
 
-    Write-Host "  Confirming member can now access the project..."
-    $fetchedAsMember = Invoke-RestMethod -Method Get -Uri "$Base/projects/$projectId" -Headers $memberHeaders
-    Write-Host "  Member can now see project: $($fetchedAsMember.name)"
+$task1 = Invoke-ApiTest -Name "Create task 1 in project A" -Method POST -Endpoint "/tasks/" -ExpectedStatus 201 `
+    -Headers $aliceAuth -Body @{ project_id = $projectAId; title = $sharedTaskTitle; priority = "medium" }
+$task1Id = $task1.id
 
-    # ----------------------------------------------------------------------
-    Section "10. Create a task"
-    # ----------------------------------------------------------------------
-    $task = Invoke-RestMethod -Method Post -Uri "$Base/tasks/" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-        project_id = $projectId; title = "Design homepage"; description = "Above-the-fold hero + nav"; priority = "high"; due_date = "2026-09-01"
-    } | ConvertTo-Json)
-    $taskId = $task.id
-    Write-Host "  Created task: $($task.title) (id: $taskId, status: $($task.status))"
+$taskInB = Invoke-ApiTest -Name "Same task title is allowed in a DIFFERENT project" -Method POST -Endpoint "/tasks/" -ExpectedStatus 201 `
+    -Headers $bobAuth -Body @{ project_id = $projectBId; title = $sharedTaskTitle; priority = "low" }
+$taskInBId = $taskInB.id
 
-    # ----------------------------------------------------------------------
-    Section "11. List tasks for project / get task by id"
-    # ----------------------------------------------------------------------
-    $tasksForProject = Invoke-RestMethod -Method Get -Uri "$Base/tasks/project/$projectId" -Headers $ownerHeaders
-    Write-Host "  Project has $($tasksForProject.Count) task(s)"
+Invoke-ApiTest -Name "Duplicate task title WITHIN same project is rejected" -Method POST -Endpoint "/tasks/" -ExpectedStatus 400 `
+    -Headers $aliceAuth -Body @{ project_id = $projectAId; title = $sharedTaskTitle }
 
-    $fetchedTask = Invoke-RestMethod -Method Get -Uri "$Base/tasks/$taskId" -Headers $ownerHeaders
-    Write-Host "  Fetched task: $($fetchedTask.title)"
+$task2 = Invoke-ApiTest -Name "Create task 2 in project A" -Method POST -Endpoint "/tasks/" -ExpectedStatus 201 `
+    -Headers $aliceAuth -Body @{ project_id = $projectAId; title = $secondTaskTitle; priority = "high"; due_date = $tomorrow }
+$task2Id = $task2.id
 
-    # ----------------------------------------------------------------------
-    Section "12. Assign the member to the task"
-    # ----------------------------------------------------------------------
-    $assignUri = "$Base/tasks/$taskId/assign?user_id=$($lookedUp.id)"
-    $assignResult = Invoke-RestMethod -Method Post -Uri $assignUri -Headers $ownerHeaders
-    Write-Host "  $($assignResult.detail)"
+Invoke-ApiTest -Name "List tasks for project A" -Method GET -Endpoint "/tasks/project/$projectAId" -ExpectedStatus 200 `
+    -Headers $aliceAuth -Validate { param($r) if (@($r).Count -lt 2) { throw "expected at least 2 tasks" } }
 
-    ShouldFail "Assigning the same user twice" {
-        Invoke-RestMethod -Method Post -Uri $assignUri -Headers $ownerHeaders
+Invoke-ApiTest -Name "Get task 1 by id" -Method GET -Endpoint "/tasks/$task1Id" -ExpectedStatus 200 -Headers $aliceAuth
+
+Invoke-ApiTest -Name "Viewer cannot create a task (needs contributor+)" -Method POST -Endpoint "/tasks/" -ExpectedStatus 403 `
+    -Headers $carolAuth -Body @{ project_id = $projectAId; title = "Should never exist" }
+
+Invoke-ApiTest -Name "Assign Bob to task 1" -Method POST -Endpoint "/tasks/$task1Id/assign?user_id=$bobId" -ExpectedStatus 201 `
+    -Headers $aliceAuth
+
+Invoke-ApiTest -Name "Cannot assign a non-project-member (Dave) to a task" -Method POST -Endpoint "/tasks/$task1Id/assign?user_id=$daveId" -ExpectedStatus 400 `
+    -Headers $aliceAuth
+
+Invoke-ApiTest -Name "Viewer cannot change task status (needs contributor+)" -Method PATCH -Endpoint "/tasks/$task1Id" -ExpectedStatus 403 `
+    -Headers $carolAuth -Body @{ status = "in_progress" }
+
+Invoke-ApiTest -Name "Contributor CAN change task status" -Method PATCH -Endpoint "/tasks/$task1Id" -ExpectedStatus 200 `
+    -Headers $bobAuth -Body @{ status = "in_progress" } `
+    -Validate { param($r) if ($r.status -ne "in_progress") { throw "status did not update" } }
+
+Invoke-ApiTest -Name "Contributor CANNOT rename a task (needs manager+)" -Method PATCH -Endpoint "/tasks/$task1Id" -ExpectedStatus 403 `
+    -Headers $bobAuth -Body @{ title = "Bob should not be able to set this" }
+
+Invoke-ApiTest -Name "Manager+ renaming task to a title already used in-project is rejected" -Method PATCH -Endpoint "/tasks/$task1Id" -ExpectedStatus 400 `
+    -Headers $aliceAuth -Body @{ title = $secondTaskTitle }
+
+Invoke-ApiTest -Name "Renaming task to its own current title succeeds" -Method PATCH -Endpoint "/tasks/$task1Id" -ExpectedStatus 200 `
+    -Headers $aliceAuth -Body @{ title = $sharedTaskTitle }
+
+Invoke-ApiTest -Name "Task status-history reflects the transition" -Method GET -Endpoint "/tasks/$task1Id/history" -ExpectedStatus 200 `
+    -Headers $aliceAuth -Validate { param($r) if (@($r).Count -lt 1) { throw "expected at least one history entry" } }
+
+Invoke-ApiTest -Name "Bob sees task 1 under his assigned tasks" -Method GET -Endpoint "/tasks/assigned/me" -ExpectedStatus 200 `
+    -Headers $bobAuth -Validate { param($r) if (-not (@($r) | Where-Object { $_.id -eq $task1Id })) { throw "task 1 missing from assigned list" } }
+
+# ===========================================================================
+# PHASE 5 - Comments (including a threaded reply)
+# ===========================================================================
+Write-Host ""
+Write-Host "--- Phase 5: Comments ---" -ForegroundColor Magenta
+
+$comment1 = Invoke-ApiTest -Name "Bob comments on task 1" -Method POST -Endpoint "/comments/" -ExpectedStatus 201 `
+    -Headers $bobAuth -Body @{ task_id = $task1Id; content = "Looks good so far." }
+$comment1Id = $comment1.id
+
+$reply1 = Invoke-ApiTest -Name "Alice replies to Bob's comment (threaded)" -Method POST -Endpoint "/comments/" -ExpectedStatus 201 `
+    -Headers $aliceAuth -Body @{ task_id = $task1Id; content = "Agreed, ship it."; parent_comment_id = $comment1Id }
+$reply1Id = $reply1.id
+
+Invoke-ApiTest -Name "Viewer cannot post a comment (needs contributor+)" -Method POST -Endpoint "/comments/" -ExpectedStatus 403 `
+    -Headers $carolAuth -Body @{ task_id = $task1Id; content = "I should not be allowed to post this." }
+
+Invoke-ApiTest -Name "Comment tree for task 1 contains the threaded reply" -Method GET -Endpoint "/comments/task/$task1Id" -ExpectedStatus 200 `
+    -Headers $aliceAuth `
+    -Validate {
+        param($r)
+        $root = @($r) | Where-Object { $_.id -eq $comment1Id }
+        if (-not $root) { throw "root comment missing" }
+        if (-not (@($root[0].replies) | Where-Object { $_.id -eq $reply1Id })) { throw "reply not nested under its parent" }
     }
 
-    # ----------------------------------------------------------------------
-    Section "13. Update task status (PATCH) -> in_progress, then done"
-    # ----------------------------------------------------------------------
-    $updated = Invoke-RestMethod -Method Patch -Uri "$Base/tasks/$taskId" -Headers $memberHeaders -ContentType "application/json" -Body (@{
-        status = "in_progress"
-    } | ConvertTo-Json)
-    Write-Host "  Task status -> $($updated.status)"
+Invoke-ApiTest -Name "Non-author cannot edit someone else's comment" -Method PATCH -Endpoint "/comments/$comment1Id" -ExpectedStatus 403 `
+    -Headers $carolAuth -Body @{ content = "Hijacked!" }
 
-    $updated2 = Invoke-RestMethod -Method Patch -Uri "$Base/tasks/$taskId" -Headers $memberHeaders -ContentType "application/json" -Body (@{
-        status = "done"
-    } | ConvertTo-Json)
-    Write-Host "  Task status -> $($updated2.status)"
+Invoke-ApiTest -Name "Author can edit their own comment" -Method PATCH -Endpoint "/comments/$comment1Id" -ExpectedStatus 200 `
+    -Headers $bobAuth -Body @{ content = "Looks good so far. (edited)" }
 
-    # ----------------------------------------------------------------------
-    Section "14. GET /tasks/{id}/history - status change audit trail"
-    # ----------------------------------------------------------------------
-    $history = Invoke-RestMethod -Method Get -Uri "$Base/tasks/$taskId/history" -Headers $ownerHeaders
-    Write-Host "  $($history.Count) history entries: $($history.new_status -join ' -> ')"
-    Expect "History has 3 entries (create + 2 status changes)" ($history.Count -eq 3)
-    Expect "First entry is the initial 'todo' with no old_status" ($history[0].new_status -eq "todo" -and $null -eq $history[0].old_status)
-    Expect "Last entry lands on 'done'" ($history[-1].new_status -eq "done")
+Invoke-ApiTest -Name "Author can delete their own reply" -Method DELETE -Endpoint "/comments/$reply1Id" -ExpectedStatus 204 `
+    -Headers $aliceAuth
 
-    # ----------------------------------------------------------------------
-    Section "15. Task filtering & pagination (GET /tasks/project/{id})"
-    # ----------------------------------------------------------------------
-    $filterTask = Invoke-RestMethod -Method Post -Uri "$Base/tasks/" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-        project_id = $projectId; title = "Low priority cleanup"; priority = "low"
-    } | ConvertTo-Json)
-    Write-Host "  Created a second task (priority: low) for filter testing"
+# ===========================================================================
+# PHASE 6 - Stats & admin gating
+# ===========================================================================
+Write-Host ""
+Write-Host "--- Phase 6: Stats & Admin Gating ---" -ForegroundColor Magenta
 
-    $byPriorityLow = Invoke-RestMethod -Method Get -Uri "$Base/tasks/project/$($projectId)?priority=low" -Headers $ownerHeaders
-    Expect "priority=low returns exactly the cleanup task" ($byPriorityLow.Count -eq 1 -and $byPriorityLow[0].id -eq $filterTask.id)
+Invoke-ApiTest -Name "Project A stats reflect its tasks" -Method GET -Endpoint "/projects/$projectAId/stats" -ExpectedStatus 200 `
+    -Headers $aliceAuth -Validate { param($r) if ($r.total_tasks -lt 2) { throw "expected at least 2 tasks in stats" } }
 
-    $byStatusDone = Invoke-RestMethod -Method Get -Uri "$Base/tasks/project/$($projectId)?status=done" -Headers $ownerHeaders
-    Expect "status=done returns exactly the homepage task" ($byStatusDone.Count -eq 1 -and $byStatusDone[0].id -eq $taskId)
+Invoke-ApiTest -Name "Non-site-admin blocked from security alerts (list)" -Method GET -Endpoint "/admin/alerts?include_resolved=false" -ExpectedStatus 403 `
+    -Headers $aliceAuth
 
-    $byAssignee = Invoke-RestMethod -Method Get -Uri "$Base/tasks/project/$($projectId)?assignee_id=$($lookedUp.id)" -Headers $ownerHeaders
-    Expect "assignee_id filter returns the assigned task" ($byAssignee.Count -eq 1 -and $byAssignee[0].id -eq $taskId)
+Invoke-ApiTest -Name "Non-site-admin blocked from resolving alerts" -Method PATCH -Endpoint "/admin/alerts/nonexistent-id/resolve" -ExpectedStatus 403 `
+    -Headers $aliceAuth
 
-    $pagedTasks = Invoke-RestMethod -Method Get -Uri "$Base/tasks/project/$($projectId)?limit=1" -Headers $ownerHeaders
-    Expect "limit=1 returns at most 1 task" ($pagedTasks.Count -le 1)
-
-    Invoke-RestMethod -Method Delete -Uri "$Base/tasks/$($filterTask.id)" -Headers $ownerHeaders | Out-Null
-    Write-Host "  Cleaned up the filter-test task"
-
-    # ----------------------------------------------------------------------
-    Section "16. Unassign the member from the task"
-    # ----------------------------------------------------------------------
-    Invoke-RestMethod -Method Delete -Uri "$Base/tasks/$taskId/assign/$($lookedUp.id)" -Headers $ownerHeaders
-    Write-Host "  Unassigned OK"
-
-    ShouldFail "Unassigning again (not assigned anymore)" {
-        Invoke-RestMethod -Method Delete -Uri "$Base/tasks/$taskId/assign/$($lookedUp.id)" -Headers $ownerHeaders
-    }
-
-    # ----------------------------------------------------------------------
-    Section "17. Comments: create, nested replies, list-as-tree, edit, delete"
-    # ----------------------------------------------------------------------
-    $comment = Invoke-RestMethod -Method Post -Uri "$Base/comments/" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-        task_id = $taskId; content = "Looks good, ship it"
-    } | ConvertTo-Json)
-    Write-Host "  Created root comment (id: $($comment.id))"
-
-    $reply = Invoke-RestMethod -Method Post -Uri "$Base/comments/" -Headers $memberHeaders -ContentType "application/json" -Body (@{
-        task_id = $taskId; content = "Thanks! Deploying now"; parent_comment_id = $comment.id
-    } | ConvertTo-Json)
-    Write-Host "  Created reply (id: $($reply.id), parent: $($reply.parent_comment_id))"
-
-    $grandchildReply = Invoke-RestMethod -Method Post -Uri "$Base/comments/" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-        task_id = $taskId; content = "Confirmed live"; parent_comment_id = $reply.id
-    } | ConvertTo-Json)
-    Write-Host "  Created reply-to-reply (id: $($grandchildReply.id), parent: $($grandchildReply.parent_comment_id))"
-
-    $commentTree = Invoke-RestMethod -Method Get -Uri "$Base/comments/task/$taskId" -Headers $ownerHeaders
-    Expect "Tree has 1 root comment" ($commentTree.Count -eq 1)
-    Expect "Root comment has 1 direct reply" ($commentTree[0].replies.Count -eq 1)
-    Expect "Reply is correctly nested 2 levels deep" ($commentTree[0].replies[0].replies.Count -eq 1 -and $commentTree[0].replies[0].replies[0].id -eq $grandchildReply.id)
-
-    ShouldFail "Editing someone else's comment" {
-        Invoke-RestMethod -Method Patch -Uri "$Base/comments/$($comment.id)" -Headers $memberHeaders -ContentType "application/json" -Body (@{
-            content = "hijacked"
-        } | ConvertTo-Json)
-    }
-
-    $editedComment = Invoke-RestMethod -Method Patch -Uri "$Base/comments/$($comment.id)" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-        content = "Looks good, ship it! (edited)"
-    } | ConvertTo-Json)
-    Write-Host "  Edited own comment -> '$($editedComment.content)'"
-
-    Invoke-RestMethod -Method Delete -Uri "$Base/comments/$($grandchildReply.id)" -Headers $ownerHeaders
-    Write-Host "  Deleted own leaf reply OK"
-
-    # ----------------------------------------------------------------------
-    Section "18. Project stats"
-    # ----------------------------------------------------------------------
-    $stats = Invoke-RestMethod -Method Get -Uri "$Base/projects/$projectId/stats" -Headers $ownerHeaders
-    Write-Host "  Total tasks: $($stats.total_tasks)"
-    Write-Host "  By status: $($stats.tasks_by_status | ConvertTo-Json -Compress)"
-    Write-Host "  Overdue: $($stats.overdue_tasks)"
-
-    # ----------------------------------------------------------------------
-    Section "19. Register a third user and add as contributor (future manager)"
-    # ----------------------------------------------------------------------
-    $managerEmail = "manager_$(Get-Random)@test.com"
-    $managerUser = Invoke-RestMethod -Method Post -Uri "$Base/auth/register" -ContentType "application/json" -Body (@{
-        name = "Future Manager"; email = $managerEmail; password = $password
-    } | ConvertTo-Json)
-
-    $managerLogin = Invoke-RestMethod -Method Post -Uri "$Base/auth/login" -ContentType "application/x-www-form-urlencoded" -Body @{
-        username = $managerEmail; password = $password
-    }
-    $managerToken = $managerLogin.access_token
-    $managerHeaders = @{ Authorization = "Bearer $managerToken" }
-
-    $lookedUpManager = Invoke-RestMethod -Method Get -Uri "$Base/users/lookup?email=$managerEmail" -Headers $ownerHeaders
-    Invoke-RestMethod -Method Post -Uri "$Base/projects/$projectId/members" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-        user_id = $lookedUpManager.id; project_role = "contributor"
-    } | ConvertTo-Json) | Out-Null
-    Write-Host "  Registered and added future manager as contributor (id: $($lookedUpManager.id))"
-
-    # ----------------------------------------------------------------------
-    Section "20. Contributor cannot change anyone's project role"
-    # ----------------------------------------------------------------------
-    ShouldFail "Contributor PATCHing another member's role" {
-        Invoke-RestMethod -Method Patch -Uri "$Base/projects/$projectId/members/$($lookedUpManager.id)" -Headers $memberHeaders -ContentType "application/json" -Body (@{
-            project_role = "manager"
-        } | ConvertTo-Json)
-    }
-
-    # ----------------------------------------------------------------------
-    Section "21. Admin (project creator) promotes the third user to manager"
-    # ----------------------------------------------------------------------
-    $promoted = Invoke-RestMethod -Method Patch -Uri "$Base/projects/$projectId/members/$($lookedUpManager.id)" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-        project_role = "manager"
-    } | ConvertTo-Json)
-    Write-Host "  Promoted to: $($promoted.project_role)"
-
-    # ----------------------------------------------------------------------
-    Section "22. Manager cannot grant the admin role"
-    # ----------------------------------------------------------------------
-    ShouldFail "Manager promoting a member to admin" {
-        Invoke-RestMethod -Method Patch -Uri "$Base/projects/$projectId/members/$($lookedUp.id)" -Headers $managerHeaders -ContentType "application/json" -Body (@{
-            project_role = "admin"
-        } | ConvertTo-Json)
-    }
-
-    # ----------------------------------------------------------------------
-    Section "23. Manager CAN change a contributor to viewer and back"
-    # ----------------------------------------------------------------------
-    $demoted = Invoke-RestMethod -Method Patch -Uri "$Base/projects/$projectId/members/$($lookedUp.id)" -Headers $managerHeaders -ContentType "application/json" -Body (@{
-        project_role = "viewer"
-    } | ConvertTo-Json)
-    Write-Host "  Member demoted to: $($demoted.project_role)"
-
-    ShouldFail "Viewer creating a task" {
-        Invoke-RestMethod -Method Post -Uri "$Base/tasks/" -Headers $memberHeaders -ContentType "application/json" -Body (@{
-            project_id = $projectId; title = "Should not be created"
-        } | ConvertTo-Json)
-    }
-
-    $restored = Invoke-RestMethod -Method Patch -Uri "$Base/projects/$projectId/members/$($lookedUp.id)" -Headers $managerHeaders -ContentType "application/json" -Body (@{
-        project_role = "contributor"
-    } | ConvertTo-Json)
-    Write-Host "  Member restored to: $($restored.project_role)"
-
-    # ----------------------------------------------------------------------
-    Section "24. List project members"
-    # ----------------------------------------------------------------------
-    $members = Invoke-RestMethod -Method Get -Uri "$Base/projects/$projectId/members" -Headers $ownerHeaders
-    Write-Host "  Project has $($members.Count) member(s):"
-    foreach ($m in $members) { Write-Host "    - $($m.user_id): $($m.project_role)" }
-
-    # ----------------------------------------------------------------------
-    Section "25. Contributor can update task status but not other fields"
-    # ----------------------------------------------------------------------
-    $extraTask = Invoke-RestMethod -Method Post -Uri "$Base/tasks/" -Headers $memberHeaders -ContentType "application/json" -Body (@{
-        project_id = $projectId; title = "Write tests"
-    } | ConvertTo-Json)
-    $extraTaskId = $extraTask.id
-    Write-Host "  Contributor created task: $($extraTask.title) (id: $extraTaskId)"
-
-    ShouldFail "Contributor editing task title" {
-        Invoke-RestMethod -Method Patch -Uri "$Base/tasks/$extraTaskId" -Headers $memberHeaders -ContentType "application/json" -Body (@{
-            title = "Hijacked title"
-        } | ConvertTo-Json)
-    }
-
-    $statusOnly = Invoke-RestMethod -Method Patch -Uri "$Base/tasks/$extraTaskId" -Headers $memberHeaders -ContentType "application/json" -Body (@{
-        status = "in_progress"
-    } | ConvertTo-Json)
-    Write-Host "  Contributor set status-only update -> $($statusOnly.status)"
-
-    $managerEdit = Invoke-RestMethod -Method Patch -Uri "$Base/tasks/$extraTaskId" -Headers $managerHeaders -ContentType "application/json" -Body (@{
-        title = "Write unit tests"
-    } | ConvertTo-Json)
-    Write-Host "  Manager full-field edit -> '$($managerEdit.title)'"
-
-    # ----------------------------------------------------------------------
-    Section "26. Assigned-to-me and task delete (contributor, basic perms)"
-    # ----------------------------------------------------------------------
-    Invoke-RestMethod -Method Post -Uri "$Base/tasks/$extraTaskId/assign?user_id=$($lookedUp.id)" -Headers $memberHeaders | Out-Null
-    Write-Host "  Contributor self-assigned to their task"
-
-    $myTasks = Invoke-RestMethod -Method Get -Uri "$Base/tasks/assigned/me" -Headers $memberHeaders
-    Write-Host "  Member has $($myTasks.Count) task(s) assigned to them"
-
-    Invoke-RestMethod -Method Delete -Uri "$Base/tasks/$extraTaskId" -Headers $memberHeaders
-    Write-Host "  Contributor deleted their own task OK"
-
-    ShouldFail "Fetching a deleted task" {
-        Invoke-RestMethod -Method Get -Uri "$Base/tasks/$extraTaskId" -Headers $ownerHeaders
-    }
-
-    # ----------------------------------------------------------------------
-    Section "27. Last-admin lockout: sole admin can't demote, remove, or leave"
-    # ----------------------------------------------------------------------
-    ShouldFail "Sole admin demoting themselves" {
-        Invoke-RestMethod -Method Patch -Uri "$Base/projects/$projectId/members/$($owner.id)" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-            project_role = "manager"
-        } | ConvertTo-Json)
-    }
-
-    ShouldFail "Sole admin removing themselves via DELETE /members/{id}" {
-        Invoke-RestMethod -Method Delete -Uri "$Base/projects/$projectId/members/$($owner.id)" -Headers $ownerHeaders
-    }
-
-    ShouldFail "Sole admin leaving via DELETE /projects/{id}/leave" {
-        Invoke-RestMethod -Method Delete -Uri "$Base/projects/$projectId/leave" -Headers $ownerHeaders
-    }
-
-    # ----------------------------------------------------------------------
-    Section "28. Self-service leave (DELETE /projects/{id}/leave)"
-    # ----------------------------------------------------------------------
-    Invoke-RestMethod -Method Delete -Uri "$Base/projects/$projectId/leave" -Headers $memberHeaders
-    Write-Host "  Member left the project voluntarily"
-
-    ShouldFail "Ex-member accessing the project after leaving" {
-        Invoke-RestMethod -Method Get -Uri "$Base/projects/$projectId" -Headers $memberHeaders
-    }
-
-    ShouldFail "Leaving a project you already left" {
-        Invoke-RestMethod -Method Delete -Uri "$Base/projects/$projectId/leave" -Headers $memberHeaders
-    }
-
-    # ----------------------------------------------------------------------
-    Section "29. Admin removes the manager from the project"
-    # ----------------------------------------------------------------------
-    Invoke-RestMethod -Method Delete -Uri "$Base/projects/$projectId/members/$($lookedUpManager.id)" -Headers $ownerHeaders
-    Write-Host "  Manager removed from project OK"
-
-    ShouldFail "Removing a member who's already gone" {
-        Invoke-RestMethod -Method Delete -Uri "$Base/projects/$projectId/members/$($lookedUpManager.id)" -Headers $ownerHeaders
-    }
-
-    # ----------------------------------------------------------------------
-    Section "30. Project update / delete lifecycle"
-    # ----------------------------------------------------------------------
-    $renamed = Invoke-RestMethod -Method Patch -Uri "$Base/projects/$projectId" -Headers $ownerHeaders -ContentType "application/json" -Body (@{
-        name = "Launch Website (v2)"; status = "active"
-    } | ConvertTo-Json)
-    Write-Host "  Admin renamed project -> $($renamed.name)"
-
-    ShouldFail "Deleting a project that still has tasks" {
-        Invoke-RestMethod -Method Delete -Uri "$Base/projects/$projectId" -Headers $ownerHeaders
-    }
-
-    Invoke-RestMethod -Method Delete -Uri "$Base/tasks/$taskId" -Headers $ownerHeaders
-    Write-Host "  Deleted remaining task so the project can be cleaned up"
-
-    Invoke-RestMethod -Method Delete -Uri "$Base/projects/$projectId" -Headers $ownerHeaders
-    Write-Host "  Project deleted OK"
-
-    ShouldFail "Fetching a deleted project" {
-        Invoke-RestMethod -Method Get -Uri "$Base/projects/$projectId" -Headers $ownerHeaders
-    }
-
-} catch {
-    # Anything that was expected to succeed but threw lands here. The run
-    # stops here (later steps likely depend on state we never got), but the
-    # summary below still reports what we know.
-    $status = $_.Exception.Response.StatusCode.value__
-    $msg = "Unexpected failure in [$($Global:CurrentSection)] (HTTP $status): $($_.Exception.Message)"
+# ===========================================================================
+# PHASE 6.5 - Admin-privileged success paths (only with -AdminEmail/-AdminPassword)
+# ===========================================================================
+if ($RunAdminTests) {
     Write-Host ""
-    Write-Host "  [ISSUE] $msg" -ForegroundColor Red
-    $Global:Issues += $msg
-}
+    Write-Host "--- Phase 6.5: Admin-Privileged Actions ---" -ForegroundColor Magenta
 
-# ==========================================================================
-Section "SUMMARY"
-# ==========================================================================
-Write-Host "Full API Smoke Test Run Complete." -ForegroundColor Cyan
+    $adminToken = Get-LoginToken -Email $AdminEmail -Name "Admin (bootstrap)" -Password $AdminPassword
+    $adminAuth  = Get-AuthHeader $adminToken
 
-if ($Global:Issues.Count -eq 0) {
-    Write-Host "  [RESULT] SUCCESS: 0 issues found. All API tests passed!" -ForegroundColor Green
-} else {
-    Write-Host "  [RESULT] FAILED: $($Global:Issues.Count) issue(s) found during execution." -ForegroundColor Red
-    Write-Host "  Breakdown of parts that bugged out:" -ForegroundColor Yellow
+    # Phase 1's "Non-site-admin cannot change global roles" test (Bob trying
+    # to set his own role) already wrote a real, resolvable SecurityAlert --
+    # reuse it instead of needing to manufacture one here.
+    $alertsResp = Invoke-ApiTest -Name "Site admin can list unresolved security alerts" -Method GET -Endpoint "/admin/alerts?include_resolved=false" -ExpectedStatus 200 `
+        -Headers $adminAuth
+    $bobAlert = @($alertsResp) | Where-Object { $_.target_user_id -eq $bobId -and $_.alert_type -eq "unauthorized_global_role_change" } | Select-Object -First 1
+    if (-not $bobAlert) {
+        Write-Host "        (warning: expected alert from Bob's earlier 403 not found -- skipping alert-resolution tests)" -ForegroundColor DarkYellow
+    } else {
+        $alertId = $bobAlert.id
 
-    $counter = 1
-    foreach ($issue in $Global:Issues) {
-        Write-Host "   $counter. $issue" -ForegroundColor Red
-        $counter++
+        Invoke-ApiTest -Name "Site admin resolves the security alert" -Method PATCH -Endpoint "/admin/alerts/$alertId/resolve" -ExpectedStatus 200 `
+            -Headers $adminAuth `
+            -Validate { param($r) if (-not $r.resolved) { throw "alert was not marked resolved" } }
+
+        Invoke-ApiTest -Name "Resolved alert no longer appears in the unresolved list" -Method GET -Endpoint "/admin/alerts?include_resolved=false" -ExpectedStatus 200 `
+            -Headers $adminAuth `
+            -Validate { param($r) if (@($r) | Where-Object { $_.id -eq $alertId }) { throw "resolved alert still showing as unresolved" } }
+
+        Invoke-ApiTest -Name "Resolved alert appears when include_resolved=true" -Method GET -Endpoint "/admin/alerts?include_resolved=true" -ExpectedStatus 200 `
+            -Headers $adminAuth `
+            -Validate { param($r) if (-not (@($r) | Where-Object { $_.id -eq $alertId -and $_.resolved })) { throw "resolved alert missing from full list" } }
     }
 
-    # Exit with a non-zero code so automation tools (like GitHub Actions/GitLab CI) catch the failure
+    Invoke-ApiTest -Name "Resolving a nonexistent alert 404s (not 403 -- caller IS admin)" -Method PATCH -Endpoint "/admin/alerts/does-not-exist/resolve" -ExpectedStatus 404 `
+        -Headers $adminAuth
+
+    Invoke-ApiTest -Name "Site admin promotes Carol to global manager" -Method PATCH -Endpoint "/users/$carolId/role" -ExpectedStatus 200 `
+        -Headers $adminAuth -Body @{ global_role = "manager" } `
+        -Validate { param($r) if ($r.global_role -ne "manager") { throw "expected global_role=manager, got $($r.global_role)" } }
+
+    Invoke-ApiTest -Name "Site admin demotes Carol back to member (cleanup)" -Method PATCH -Endpoint "/users/$carolId/role" -ExpectedStatus 200 `
+        -Headers $adminAuth -Body @{ global_role = "member" } `
+        -Validate { param($r) if ($r.global_role -ne "member") { throw "role was not reverted" } }
+
+    Invoke-ApiTest -Name "Site admin bypasses membership -- can view project A without joining" -Method GET -Endpoint "/projects/$projectAId" -ExpectedStatus 200 `
+        -Headers $adminAuth
+
+    Invoke-ApiTest -Name "Site admin bypasses membership -- can edit project A without joining" -Method PATCH -Endpoint "/projects/$projectAId" -ExpectedStatus 200 `
+        -Headers $adminAuth -Body @{ description = "Touched by site admin during testing" }
+
+    Invoke-ApiTest -Name "Site admin's project list includes projects they don't belong to" -Method GET -Endpoint "/projects/?limit=200&offset=0" -ExpectedStatus 200 `
+        -Headers $adminAuth `
+        -Validate { param($r) if (-not (@($r) | Where-Object { $_.id -eq $projectAId })) { throw "admin's project list is missing project A despite not being a member" } }
+} else {
+    Write-Host ""
+    Write-Host "--- Phase 6.5: Admin-Privileged Actions (SKIPPED -- pass -AdminEmail/-AdminPassword to enable) ---" -ForegroundColor DarkGray
+}
+
+# ===========================================================================
+# PHASE 7 - Cleanup, ordered so the business rules under test actually fire
+# ===========================================================================
+Write-Host ""
+Write-Host "--- Phase 7: Cleanup & Last-Admin Protection ---" -ForegroundColor Magenta
+
+Invoke-ApiTest -Name "Unassign Bob from task 1" -Method DELETE -Endpoint "/tasks/$task1Id/assign/$bobId" -ExpectedStatus 204 `
+    -Headers $bobAuth
+
+Invoke-ApiTest -Name "Contributor cannot remove another member (needs manager+)" -Method DELETE -Endpoint "/projects/$projectAId/members/$carolId" -ExpectedStatus 403 `
+    -Headers $bobAuth
+
+Invoke-ApiTest -Name "Carol (viewer, not last admin) can leave project A" -Method DELETE -Endpoint "/projects/$projectAId/leave" -ExpectedStatus 204 `
+    -Headers $carolAuth
+
+Invoke-ApiTest -Name "Sole project admin is blocked from leaving (last-admin rule)" -Method DELETE -Endpoint "/projects/$projectAId/leave" -ExpectedStatus 400 `
+    -Headers $aliceAuth
+
+Invoke-ApiTest -Name "Cannot delete a project that still has tasks" -Method DELETE -Endpoint "/projects/$projectAId" -ExpectedStatus 400 `
+    -Headers $aliceAuth
+
+Invoke-ApiTest -Name "Delete task 2 in project A" -Method DELETE -Endpoint "/tasks/$task2Id" -ExpectedStatus 204 -Headers $aliceAuth
+Invoke-ApiTest -Name "Delete task 1 in project A" -Method DELETE -Endpoint "/tasks/$task1Id" -ExpectedStatus 204 -Headers $aliceAuth
+
+Invoke-ApiTest -Name "Bob (contributor, not admin) can leave project A" -Method DELETE -Endpoint "/projects/$projectAId/leave" -ExpectedStatus 204 `
+    -Headers $bobAuth
+
+Invoke-ApiTest -Name "Delete now-empty project A" -Method DELETE -Endpoint "/projects/$projectAId" -ExpectedStatus 204 -Headers $aliceAuth
+
+Invoke-ApiTest -Name "Cannot delete project B while its task still exists" -Method DELETE -Endpoint "/projects/$projectBId" -ExpectedStatus 400 `
+    -Headers $bobAuth
+Invoke-ApiTest -Name "Delete the task in project B" -Method DELETE -Endpoint "/tasks/$taskInBId" -ExpectedStatus 204 -Headers $bobAuth
+Invoke-ApiTest -Name "Delete now-empty project B" -Method DELETE -Endpoint "/projects/$projectBId" -ExpectedStatus 204 -Headers $bobAuth
+
+# ===========================================================================
+# Summary report
+# ===========================================================================
+Write-Host ""
+Write-Host "===================================================================" -ForegroundColor Cyan
+Write-Host " TEST SUMMARY" -ForegroundColor Cyan
+Write-Host "===================================================================" -ForegroundColor Cyan
+
+$passCount = ($script:Results | Where-Object { $_.Passed }).Count
+$failCount = ($script:Results | Where-Object { -not $_.Passed }).Count
+
+Write-Host "Total tests run : $($script:TestCount)"
+Write-Host "Passed          : $passCount" -ForegroundColor Green
+Write-Host "Failed          : $failCount" -ForegroundColor $(if ($failCount -gt 0) { "Red" } else { "Green" })
+
+if ($failCount -gt 0) {
+    Write-Host ""
+    Write-Host "Failed tests:" -ForegroundColor Red
+    $script:Results |
+        Where-Object { -not $_.Passed } |
+        Select-Object TestName, Line, Endpoint, ExpectedStatus, ActualStatus, Detail |
+        Format-Table -AutoSize -Wrap
+}
+
+Write-Host "===================================================================" -ForegroundColor Cyan
+
+if ($failCount -gt 0) {
     exit 1
+} else {
+    Write-Host "All tests passed." -ForegroundColor Green
+    exit 0
 }
