@@ -1,4 +1,4 @@
-# project-manager# Team Task Management API
+Team Task Management System
 
 A RESTful Team Task Management API built with **Python, FastAPI, PostgreSQL, SQLAlchemy, Alembic, Pydantic, and JWT authentication**.
 
