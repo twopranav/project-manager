@@ -7,7 +7,6 @@ from app.db.base_class import Base
 # Enum defining the three site-wide roles a user can have.
 class GlobalRole(str, enum.Enum):
     admin = "admin"
-    manager = "manager"
     member = "member"
 
 # Table representing application users; stores authentication data, one global role, and relationships to owned/member projects, tasks, and comments.
