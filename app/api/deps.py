@@ -11,6 +11,10 @@ from app.models.project_member import ProjectMember, ProjectRole
 settings = get_settings()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
+# Runs on every protected route via Depends(). Decodes the bearer JWT, pulls
+# the user id out of it, and loads that User fresh from the DB every request
+# (so a role change takes effect immediately, no stale-token permissions).
+# Any failure — bad signature, expired, missing "sub", user no longer exists — is a 401.
 def get_current_user(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)) -> User:
     credentials_exception = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Could not validate credentials")
     try:
@@ -36,6 +40,9 @@ _ROLE_RANK = {
 }
 
 
+# THE permission gate — nearly every project/task/member route calls this.
+# Site admin bypasses membership entirely; everyone else needs a ProjectMember
+# row for this exact project ranked >= min_role. 404 = no such project, 403 = not senior enough.
 def require_project_role(
     db: Session,
     current_user: User,
@@ -57,13 +64,16 @@ def require_project_role(
     Returns the Project (so callers that already need it don't re-query).
     Raises 404 if the project doesn't exist, 403 if access is insufficient.
     """
+    # Step 1: project must exist at all.
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
 
+    # Step 2: site-wide admin skips membership checks entirely — full access to any project.
     if current_user.global_role == GlobalRole.admin:
         return project
 
+    # Step 3: everyone else must have a ProjectMember row for THIS project.
     membership = db.query(ProjectMember).filter(
         ProjectMember.project_id == project_id,
         ProjectMember.user_id == current_user.id,
@@ -71,6 +81,7 @@ def require_project_role(
     if not membership:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this project")
 
+    # Step 4: their project_role rank must meet or exceed what the caller required.
     if _ROLE_RANK[membership.project_role] < _ROLE_RANK[min_role]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
