@@ -5,6 +5,7 @@ from app.models.user import User, GlobalRole
 from app.schemas.user import UserOut, UserUpdate, UserGlobalRoleUpdate
 from app.api.deps import get_current_user
 from app.core.security import hash_password
+from app.core.security_alerts import log_unauthorized_role_change
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -59,12 +60,21 @@ def update_user_global_role(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    # Site-wide role changes are a site-admin-only action — this is the
-    # promotion path once the bootstrap (first-user-is-admin) account exists.
+    # Site-wide role changes are a site-admin-only action. There is no
+    # "promote yourself" path — the admin is set once via the bootstrap
+    # script (app/scripts/bootstrap_admin.py) and can only be reassigned
+    # by the current admin. Anyone else who tries gets a 403 and the
+    # attempt is logged for the real admin to see.
     if current_user.global_role != GlobalRole.admin:
+        log_unauthorized_role_change(
+            db=db,
+            actor=current_user,
+            target_user_id=user_id,
+            attempted_role=role_update.global_role.value,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only a site admin can change a user's global role",
+            detail="Only the site admin can change a user's global role",
         )
 
     target_user = db.query(User).filter(User.id == user_id).first()

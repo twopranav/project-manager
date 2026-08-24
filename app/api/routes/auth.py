@@ -15,17 +15,17 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
 
-    # Bootstrap problem: GlobalRole defaults to "member" and there's no
-    # other way to create the first site admin. The very first account
-    # ever registered becomes the global admin; everyone after that is
-    # a regular member (promotions from there happen via a site admin).
-    is_first_user = db.query(User.id).first() is None
-
+    # Every account registers as a plain member, no exceptions — including
+    # the very first one. The global admin role is never granted through
+    # this endpoint. It's assigned exactly once, manually, by running
+    # app/scripts/bootstrap_admin.py directly against the database, and
+    # after that only an existing admin can hand it to anyone else
+    # (see PATCH /users/{id}/role).
     new_user = User(
         name=user_in.name,
         email=user_in.email,
         password_hash=hash_password(user_in.password),
-        global_role=GlobalRole.admin if is_first_user else GlobalRole.member,
+        global_role=GlobalRole.member,
     )
     db.add(new_user)
     db.commit()

@@ -5,3 +5,4 @@ from app.models.task import Task
 from app.models.task_assignee import TaskAssignee
 from app.models.comment import Comment
 from app.models.task_status_history import TaskStatusHistory
+from app.models.security_alert import SecurityAlert
