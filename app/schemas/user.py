@@ -31,3 +31,7 @@ class UserUpdate(BaseModel):
 # Input schema for changing a user's global role; the requested GlobalRole is required.
 class UserGlobalRoleUpdate(BaseModel):
     global_role: GlobalRole
+
+# Input schema for transferring global admin rights to another user; the new admin's user ID is required.
+class TransferAdminRequest(BaseModel):
+    new_admin_user_id: str

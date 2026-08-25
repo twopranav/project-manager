@@ -109,6 +109,15 @@ def update_user_global_role(
             detail="Only the site admin can change a user's global role",
         )
 
+# Granting admin is only allowed through the dedicated transfer flow, which
+# demotes the current admin and promotes the target in one transaction —
+# this endpoint has no such safeguard and would just hit the DB constraint.
+    if role_update.global_role == GlobalRole.admin:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Use POST /admin/transfer-admin to transfer admin rights.",
+        )
+
 # Find the user whose global role is being changed.
     target_user = db.query(User).filter(User.id == user_id).first()
 # Check whether the target account exists.
@@ -117,7 +126,7 @@ def update_user_global_role(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
 # Detect when the current admin is attempting to change their own role.
-    if target_user.id == current_user.id and role_update.global_role != GlobalRole.admin:
+    if target_user.id == current_user.id:
 # Search for another site administrator who could preserve administrative access.
         other_admins = (
             db.query(User.id)

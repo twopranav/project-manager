@@ -450,6 +450,9 @@ Invoke-ApiTest -Name "Non-site-admin blocked from security alerts (list)" -Metho
 Invoke-ApiTest -Name "Non-site-admin blocked from resolving alerts" -Method PATCH -Endpoint "/admin/alerts/nonexistent-id/resolve" -ExpectedStatus 403 `
     -Headers $aliceAuth
 
+Invoke-ApiTest -Name "Non-site-admin blocked from transferring admin rights" -Method POST -Endpoint "/admin/transfer-admin" -ExpectedStatus 403 `
+    -Headers $daveAuth -Body @{ new_admin_user_id = $carolId }
+
 # ===========================================================================
 # PHASE 6.5 - Admin-privileged success paths (only with -AdminEmail/-AdminPassword)
 # ===========================================================================
@@ -488,9 +491,12 @@ if ($RunAdminTests) {
         -Headers $adminAuth
 
     # GlobalRole only has "admin" and "member" now -- "manager" is gone.
-    Invoke-ApiTest -Name "Site admin promotes Carol to global admin" -Method PATCH -Endpoint "/users/$carolId/role" -ExpectedStatus 200 `
+    # PATCH /users/{id}/role no longer allows setting global_role=admin directly --
+    # it redirects callers to POST /admin/transfer-admin (see users.py). The actual
+    # promote-to-admin success path is covered in the transfer-admin block below.
+    Invoke-ApiTest -Name "PATCH /users/{id}/role rejects setting admin -- redirects to transfer-admin" -Method PATCH -Endpoint "/users/$carolId/role" -ExpectedStatus 400 `
         -Headers $adminAuth -Body @{ global_role = "admin" } `
-        -Validate { param($r) if ($r.global_role -ne "admin") { throw "expected global_role=admin, got $($r.global_role)" } }
+        -Validate { param($r) if ($r.detail -notmatch "transfer-admin") { throw "expected detail to point at /admin/transfer-admin, got '$($r.detail)'" } }
 
     Invoke-ApiTest -Name "Site admin demotes Carol back to member (cleanup)" -Method PATCH -Endpoint "/users/$carolId/role" -ExpectedStatus 200 `
         -Headers $adminAuth -Body @{ global_role = "member" } `
@@ -505,6 +511,37 @@ if ($RunAdminTests) {
     Invoke-ApiTest -Name "Site admin's project list includes projects they don't belong to" -Method GET -Endpoint "/projects/?limit=200&offset=0" -ExpectedStatus 200 `
         -Headers $adminAuth `
         -Validate { param($r) if (-not (@($r) | Where-Object { $_.id -eq $projectAId })) { throw "admin's project list is missing project A despite not being a member" } }
+
+    # ---- Site-wide admin transfer (POST /admin/transfer-admin) ----
+    $adminMe = Invoke-ApiTest -Name "Get admin's own id (for transfer tests)" -Method GET -Endpoint "/users/me" -ExpectedStatus 200 `
+        -Headers $adminAuth
+    $realAdminId = $adminMe.id
+
+    Invoke-ApiTest -Name "Transfer-admin to a nonexistent user 404s" -Method POST -Endpoint "/admin/transfer-admin" -ExpectedStatus 404 `
+        -Headers $adminAuth -Body @{ new_admin_user_id = "does-not-exist" }
+
+    Invoke-ApiTest -Name "Transferring admin to yourself is rejected" -Method POST -Endpoint "/admin/transfer-admin" -ExpectedStatus 400 `
+        -Headers $adminAuth -Body @{ new_admin_user_id = $realAdminId }
+
+    Invoke-ApiTest -Name "Site admin transfers admin rights to Carol" -Method POST -Endpoint "/admin/transfer-admin" -ExpectedStatus 200 `
+        -Headers $adminAuth -Body @{ new_admin_user_id = $carolId } `
+        -Validate { param($r) if ($r.global_role -ne "admin" -or $r.id -ne $carolId) { throw "expected Carol to become admin" } }
+
+    Invoke-ApiTest -Name "Old admin token loses admin access right after transfer" -Method GET -Endpoint "/admin/alerts?include_resolved=false" -ExpectedStatus 403 `
+        -Headers $adminAuth
+
+    Invoke-ApiTest -Name "Carol's own profile now shows global admin" -Method GET -Endpoint "/users/me" -ExpectedStatus 200 `
+        -Headers $carolAuth -Validate { param($r) if ($r.global_role -ne "admin") { throw "Carol's token does not reflect the new admin role" } }
+
+    Invoke-ApiTest -Name "Carol transfers admin rights back to the real admin" -Method POST -Endpoint "/admin/transfer-admin" -ExpectedStatus 200 `
+        -Headers $carolAuth -Body @{ new_admin_user_id = $realAdminId } `
+        -Validate { param($r) if ($r.global_role -ne "admin" -or $r.id -ne $realAdminId) { throw "admin role was not restored" } }
+
+    Invoke-ApiTest -Name "Real admin access restored after transfer-back" -Method GET -Endpoint "/admin/alerts?include_resolved=false" -ExpectedStatus 200 `
+        -Headers $adminAuth
+
+    Invoke-ApiTest -Name "Carol is back to a regular member" -Method GET -Endpoint "/users/me" -ExpectedStatus 200 `
+        -Headers $carolAuth -Validate { param($r) if ($r.global_role -ne "member") { throw "Carol was not demoted back to member" } }
 } else {
     Write-Host ""
     Write-Host "--- Phase 6.5: Admin-Privileged Actions (SKIPPED -- pass -AdminEmail/-AdminPassword to enable) ---" -ForegroundColor DarkGray
@@ -552,8 +589,8 @@ Write-Host "==================================================================="
 Write-Host " TEST SUMMARY" -ForegroundColor Cyan
 Write-Host "===================================================================" -ForegroundColor Cyan
 
-$passCount = ($script:Results | Where-Object { $_.Passed }).Count
-$failCount = ($script:Results | Where-Object { -not $_.Passed }).Count
+$passCount = @($script:Results | Where-Object { $_.Passed }).Count
+$failCount = @($script:Results | Where-Object { -not $_.Passed }).Count
 
 Write-Host "Total tests run : $($script:TestCount)"
 Write-Host "Passed          : $passCount" -ForegroundColor Green

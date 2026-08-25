@@ -6,6 +6,9 @@ from app.models.user import User, GlobalRole
 from app.models.security_alert import SecurityAlert
 from app.schemas.security_alert import SecurityAlertOut
 from app.api.deps import get_current_user
+from sqlalchemy.exc import IntegrityError
+from app.schemas.user import UserOut, TransferAdminRequest
+from app.core.security_alerts import log_unauthorized_role_change
 
 # Create the router that exposes all admin endpoints under the /admin URL prefix.
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -61,3 +64,37 @@ def resolve_security_alert(
     db.refresh(alert)
 # Return the updated security alert to the caller.
     return alert
+
+# Endpoint for transferring global admin rights to another user.
+@router.post("/transfer-admin", response_model=UserOut)
+def transfer_admin(
+    payload: TransferAdminRequest,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    if current_user.global_role != GlobalRole.admin:
+        log_unauthorized_role_change(
+            db=db,
+            actor=current_user,
+            target_user_id=payload.new_admin_user_id,
+            attempted_role="admin (via transfer)",
+        )
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the site admin can transfer admin")
+
+    target = db.query(User).filter(User.id == payload.new_admin_user_id).first()
+    if not target:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    if target.id == current_user.id:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="You are already the admin")
+
+    try:
+        current_user.global_role = GlobalRole.member
+        db.flush()          # <-- THIS IS THE NEW LINE
+        target.global_role = GlobalRole.admin
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Admin transfer failed — try again")
+
+    db.refresh(target)
+    return target

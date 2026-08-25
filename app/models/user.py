@@ -1,6 +1,6 @@
 import uuid, enum
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, Enum
+from sqlalchemy import Column, String, DateTime, Enum, Index
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
 
@@ -12,6 +12,15 @@ class GlobalRole(str, enum.Enum):
 # Table representing application users; stores authentication data, one global role, and relationships to owned/member projects, tasks, and comments.
 class User(Base):
     __tablename__ = "users"
+    # Unique global admin constraint
+    __table_args__ = (
+        Index(
+            "uq_single_global_admin",
+            "global_role",
+            unique=True,
+            postgresql_where=(Column("global_role") == "admin"),
+        ),
+    )
     # Primary key generated as a UUID string.
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     # Required user's display name.
