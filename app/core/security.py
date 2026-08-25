@@ -19,8 +19,6 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 # Create a signed JWT containing the user's subject identifier and an expiration timestamp.
 def create_access_token(subject: str) -> str:
-    # Calculate the token expiration time by adding the configured lifetime to the current UTC time.
     expire = datetime.now(timezone.utc) + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
-
     # Encode the subject and expiration into a signed JWT using the configured secret and algorithm.
     return jwt.encode({"sub": subject, "exp": expire}, settings.SECRET_KEY, algorithm=settings.ALGORITHM)

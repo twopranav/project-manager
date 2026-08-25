@@ -49,30 +49,13 @@ def require_project_role(
     project_id: str,
     min_role: ProjectRole = ProjectRole.viewer,
 ) -> Project:
-    """
-    Single source of truth for "can this user act on this project".
-
-    - A site-wide admin (User.global_role == admin) bypasses membership
-      entirely and can act on ANY project, member or not. This is the
-      "owner can do anything to any project" tier — it lives on the User,
-      not on a per-project ProjectMember row, because a ProjectMember row
-      is inherently scoped to one project and can't represent cross-project
-      power.
-    - Everyone else must hold a ProjectMember row for this exact project,
-      with a project_role at least as senior as min_role.
-
-    Returns the Project (so callers that already need it don't re-query).
-    Raises 404 if the project doesn't exist, 403 if access is insufficient.
-    """
     # Step 1: project must exist at all.
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Project not found")
-
     # Step 2: site-wide admin skips membership checks entirely — full access to any project.
     if current_user.global_role == GlobalRole.admin:
         return project
-
     # Step 3: everyone else must have a ProjectMember row for THIS project.
     membership = db.query(ProjectMember).filter(
         ProjectMember.project_id == project_id,
@@ -80,12 +63,10 @@ def require_project_role(
     ).first()
     if not membership:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this project")
-
     # Step 4: their project_role rank must meet or exceed what the caller required.
     if _ROLE_RANK[membership.project_role] < _ROLE_RANK[min_role]:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Requires '{min_role.value}' role or higher in this project",
         )
-
     return project
