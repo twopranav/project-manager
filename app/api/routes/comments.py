@@ -19,7 +19,7 @@ def _get_task_or_404(db: Session, task_id: str) -> Task:
     task = db.query(Task).filter(Task.id == task_id).first()
 # Check whether the task lookup returned no record.
     if not task:
-# Return HTTP 400 when the reply would cross task boundaries.
+# Return HTTP 404 when the reply would cross task boundaries.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
 # Return the found task to the calling endpoint.
     return task
@@ -43,7 +43,7 @@ def create_comment(
         parent = db.query(Comment).filter(Comment.id == comment_in.parent_comment_id).first()
 # Check whether the supplied parent comment exists.
         if not parent:
-# Return HTTP 400 when the reply would cross task boundaries.
+# Return HTTP 404 when the reply would cross task boundaries.
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Parent comment not found")
 # Ensure the parent comment belongs to the same task as the new reply.
         if parent.task_id != comment_in.task_id:
@@ -144,7 +144,7 @@ def edit_comment(
     comment = db.query(Comment).filter(Comment.id == comment_id).first()
 # Check whether the comment exists before deleting it.
     if not comment:
-# Return HTTP 400 when the reply would cross task boundaries.
+# Return HTTP 404 when the reply would cross task boundaries.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Comment not found")
 
 # Calculate whether the authenticated user is the comment author.

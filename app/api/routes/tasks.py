@@ -191,7 +191,6 @@ def update_task(
     task = _get_task_or_404(db, task_id)
 # Extract only fields actually supplied in the update request.
     update_data = task_update.model_dump(exclude_unset=True)
-
 # Calculate the set of task fields the caller is attempting to modify.
     fields_being_changed = set(update_data.keys())
 # Allow contributor-level access when every changed field is status-only.
@@ -205,7 +204,6 @@ def update_task(
 # Require contributor-level access to manage task assignments.
     require_project_role(db, current_user, task.project_id, min_role)
 
-
 # Reject the rename when another task in the same project already uses the requested title & return 400
     if "title" in update_data and update_data["title"] != task.title:
         if db.query(Task).filter(Task.project_id == task.project_id, Task.title == update_data["title"], Task.id != task_id).first():
@@ -217,7 +215,6 @@ def update_task(
     for field, value in update_data.items():
 # Assign the submitted value to the corresponding task attribute.
         setattr(task, field, value)
-
 # Persist the new status-history entry.
     db.commit()
 # Reload the updated task from the database.
@@ -237,7 +234,6 @@ def update_task(
         ))
 # Persist the new status-history entry.
         db.commit()
-
 # Return the updated task.
     return task
 
@@ -253,7 +249,6 @@ def delete_task(
     task = _get_task_or_404(db, task_id)
 # Require contributor-level access to manage task assignments.
     require_project_role(db, current_user, task.project_id, ProjectRole.contributor)
-
 # Remove comments associated with the task first.
     db.query(Comment).filter(Comment.task_id == task_id).delete()
 # Remove task-assignment records associated with the task.
@@ -278,7 +273,6 @@ def assign_user_to_task(
     task = _get_task_or_404(db, task_id)
 # Require contributor-level access to manage task assignments.
     require_project_role(db, current_user, task.project_id, ProjectRole.contributor)
-
 # Check that the target user is a member of the task’s project.
     assignee_is_member = db.query(ProjectMember).filter(
         ProjectMember.project_id == task.project_id,
@@ -286,9 +280,8 @@ def assign_user_to_task(
     ).first()
 # Reject assignments to users outside the project.
     if not assignee_is_member:
-# Return HTTP 404 when the assignment cannot be found.
+# Return HTTP 400 when the assignment cannot be found.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User being assigned is not a member of this project")
-
 # Check whether the target user is already assigned to the task.
     existing = db.query(TaskAssignee).filter(
         TaskAssignee.task_id == task_id,
@@ -296,16 +289,14 @@ def assign_user_to_task(
     ).first()
 # Prevent duplicate task assignments.
     if existing:
-# Return HTTP 404 when the assignment cannot be found.
+# Return HTTP 400 when the assignment cannot be found.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User already assigned to this task")
-
 # Create the task-assignment record.
     db.add(TaskAssignee(task_id=task_id, user_id=user_id))
 # Persist the new status-history entry.
     db.commit()
 # Return a simple success message after assignment.
     return {"detail": "User assigned"}
-
 
 @router.delete("/{task_id}/assign/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 # Handle removal of a user from a task.

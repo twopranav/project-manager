@@ -15,22 +15,14 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 def register(user_in: UserCreate, db: Session = Depends(get_db)):
 # Check whether an account with the submitted email already exists.
     existing = db.query(User).filter(User.email == user_in.email).first()
-# Prevent duplicate accounts when the email is already registered.
+# Prevent duplicate accounts when the email is already registered and send HTTP 400
     if existing:
-# Return HTTP 401 without revealing which credential was wrong.
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered")
-
-    # Every account registers as a plain member, no exceptions — including
-    # the very first one. The global admin role is never granted through
-    # this endpoint. It's assigned exactly once, manually, by running
-    # app/scripts/bootstrap_admin.py directly against the database, and
-    # after that only an existing admin can hand it to anyone else
-    # (see PATCH /users/{id}/role).
+    # Every account registers as a plain member
 # Build the new user record and explicitly assign the normal member role.
     new_user = User(
-# Copy the submitted display name into the new user record.
+# Copy the submitted details into the new user record.
         name=user_in.name,
-# Copy the submitted email into the new user record.
         email=user_in.email,
 # Hash the submitted password before storing it in the database.
         password_hash=hash_password(user_in.password),
@@ -49,17 +41,12 @@ def register(user_in: UserCreate, db: Session = Depends(get_db)):
 @router.post("/login", response_model=Token)
 # Handle login using the standard OAuth2 username/password form and database session.
 def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depends(get_db)):
-    # OAuth2PasswordRequestForm calls the field "username" even though
-    # we're using email as the login identifier — that's just the
-    # standard OAuth2 field name, so we read it from form_data.username
+    # OAuth2PasswordRequestForm calls "username" even though email is the chosen identifier
 # Find the account whose email matches the OAuth2 form username field.
     user = db.query(User).filter(User.email == form_data.username).first()
-# Reject the login when the account does not exist or the supplied password is incorrect.
+# Reject the login if wrong credentials without revealing which + raise HTTP 401
     if not user or not verify_password(form_data.password, user.password_hash):
-# Return HTTP 401 without revealing which credential was wrong.
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
-
-# Create a signed access token whose subject identifies the authenticated user.
+# Create and return a signed access token whose subject identifies the authenticated user.
     access_token = create_access_token(subject=user.id)
-# Return the access token in the API token response format.
     return Token(access_token=access_token)

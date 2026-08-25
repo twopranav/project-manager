@@ -32,7 +32,7 @@ def _require_admin_or_siteadmin(db: Session, current_user: User, project_id: str
     is_site_admin = current_user.global_role == GlobalRole.admin
 # Reject callers who are neither project admins nor site admins.
     if not (is_project_admin or is_site_admin):
-# Return HTTP 404 when the caller is not a project member.
+# Return HTTP 403 when the caller is not a project member.
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only a project admin can grant, change, or remove the admin role",
@@ -49,7 +49,7 @@ def _guard_last_admin(db: Session, project_id: str, user_id: str) -> None:
     ).count()
 # Block the change when no other project administrator would remain.
     if other_admins == 0:
-# Return HTTP 404 when the caller is not a project member.
+# Return HTTP 400 when the caller is not a project member.
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="This project must keep at least one admin",
