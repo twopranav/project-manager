@@ -81,7 +81,3 @@ An end-to-end PowerShell smoke test is included:
 uvicorn app.main:app --reload
 .\testers\test-api.ps1
 ```
-
-## License
-
-Built as a Team Task Management API project.
