@@ -16,12 +16,10 @@ from app.db.session import SessionLocal
 from app.models.user import User, GlobalRole
 from app.core.security import hash_password
 
-# --- Placeholder details: change these before running in a real environment ---
+# Placeholders to be edited
 ADMIN_NAME = "Admin"
 ADMIN_EMAIL = "admin@example.com"
 ADMIN_PASSWORD = "changeme123"
-# --------------------------------------------------------------------------
-
 
 def create_first_admin():
     # Open a database session (same SessionLocal the app uses).
