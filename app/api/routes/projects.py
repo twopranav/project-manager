@@ -17,7 +17,6 @@ from app.api.deps import get_current_user, require_project_role
 # Create the router that exposes project endpoints under the /projects URL prefix.
 router = APIRouter(prefix="/projects", tags=["projects"])
 
-
 # Define a guard that restricts project-admin role changes to a project admin or site admin.
 def _require_admin_or_siteadmin(db: Session, current_user: User, project_id: str) -> None:
     """Gate for anything that grants/revokes the project-admin tier itself —
@@ -56,7 +55,6 @@ def _guard_last_admin(db: Session, project_id: str, user_id: str) -> None:
             detail="This project must keep at least one admin",
         )
 
-
 @router.post("/", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
 # Handle creation of a project by the authenticated user.
 def create_project(
@@ -70,9 +68,8 @@ def create_project(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A project with this name already exists")
 # Build the project record using the submitted details and current user as owner.
     new_project = Project(
-# Store the submitted project name.
+# Store the submitted project name and description 
         name=project_in.name,
-# Store the submitted project description.
         description=project_in.description,
 # Record the authenticated user as the project owner.
         owner_id=current_user.id,
@@ -88,14 +85,13 @@ def create_project(
     db.add(ProjectMember(
         project_id=new_project.id,
         user_id=current_user.id,
-# Give the project creator administrator permissions for this project.
         project_role=ProjectRole.admin,  # creator becomes this project's admin
     ))
 # Persist the departure from the project.
     db.commit()
 
-# Return the newly created project.
-    return new_project
+    return new_project # Return the created project.
+
 
 
 @router.get("/", response_model=List[ProjectOut])
@@ -125,12 +121,10 @@ def list_my_projects(
                 (ProjectMember.user_id == current_user.id)
             )
         )
-
 # Apply the status filter only when the caller supplied one.
     if status_ is not None:
 # Restrict the project query to the requested status.
         query = query.filter(Project.status == status_)
-
 # Sort newest projects first and apply offset/limit pagination.
     return query.order_by(Project.created_at.desc()).offset(offset).limit(limit).all()
 
@@ -154,18 +148,14 @@ def update_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-# manager+ gets full CRUD on projects they manage, per spec
 # Require manager access and retrieve the target project.
     project = require_project_role(db, current_user, project_id, ProjectRole.manager)
-
 # Convert only the fields actually supplied by the caller into a dictionary.
     update_data = project_update.model_dump(exclude_unset=True)
-
 # Reject the rename when another project already uses the requested name & return 400
     if "name" in update_data and update_data["name"] != project.name:
         if db.query(Project).filter(Project.name == update_data["name"], Project.id != project_id).first():
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A project with this name already exists")
-
 # Apply each requested project-field change dynamically.
     for field, value in update_data.items():
 # Assign the submitted value to the corresponding project attribute.
@@ -173,9 +163,8 @@ def update_project(
 
 # Persist the departure from the project.
     db.commit()
-# Reload the updated project.
+# Reload and return the updated project.
     db.refresh(project)
-# Return the updated project.
     return project
 
 
@@ -188,17 +177,15 @@ def delete_project(
 ):
 # Require viewer access before exposing project statistics.
     require_project_role(db, current_user, project_id, ProjectRole.manager)
-
 # Check whether the project still contains any tasks.
     has_tasks = db.query(Task.id).filter(Task.project_id == project_id).first()
 # Prevent deletion when tasks still depend on the project.
     if has_tasks:
-# Return HTTP 404 when the caller is not a project member.
+# Return HTTP 400 when the caller is not a project member.
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot delete a project that still has tasks — delete its tasks first, or archive it via PATCH instead",
         )
-
 # Remove all project-membership records associated with the project.
     db.query(ProjectMember).filter(ProjectMember.project_id == project_id).delete()
 # Select project records for the membership-scoped query.
@@ -230,7 +217,6 @@ def add_project_member(
 ):
 # Require viewer access before exposing project statistics.
     require_project_role(db, current_user, project_id, ProjectRole.manager)
-
 # Apply the stronger admin-role guard when the new member is being made an admin.
     if member_in.project_role == ProjectRole.admin:
 # Ensure the caller is authorized to alter the admin tier.
@@ -238,7 +224,6 @@ def add_project_member(
     target_user = db.query(User).filter(User.id == member_in.user_id).first()
     if not target_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User to add not found")
-
 # Check whether the target user is already a member of this project.
     existing = db.query(ProjectMember).filter(
         ProjectMember.project_id == project_id,
@@ -247,7 +232,6 @@ def add_project_member(
 # Prevent duplicate project memberships.
     if existing:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="User is already a member of this project")
-
 # Build the new project-membership record.
     new_member = ProjectMember(
         project_id=project_id,
@@ -258,9 +242,8 @@ def add_project_member(
     db.add(new_member)
 # Persist the departure from the project.
     db.commit()
-# Reload the membership with database-generated fields.
+# Reload and return the membership with database-generated fields.
     db.refresh(new_member)
-# Return the newly created membership.
     return new_member
 
 
