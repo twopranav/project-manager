@@ -7,7 +7,7 @@ Create projects, manage members and roles, assign tasks, track progress with sta
 ## Features
 
 - JWT-based authentication (register/login)
-- Global roles (`admin`, `manager`, `member`) + project-level roles (`admin`, `manager`, `contributor`, `viewer`)
+- Global roles (`admin`, `member`) + project-level roles (`admin`, `manager`, `contributor`, `viewer`)
 - Project creation, membership management, and per-project stats
 - Task creation, multi-user assignment, and status tracking (`todo → in_progress → in_review → done`, plus `blocked`)
 - Full task status history
@@ -75,9 +75,4 @@ Authorization: Bearer <token>
 
 ## Testing
 
-An end-to-end PowerShell smoke test is included:
-
-```powershell
-uvicorn app.main:app --reload
-.\testers\test-api.ps1
-```
+Refer to the README.md file within the `tests` file
