@@ -7,6 +7,7 @@ from app.core.config import get_settings
 from app.models.user import User, GlobalRole
 from app.models.project import Project
 from app.models.project_member import ProjectMember, ProjectRole
+from app.core.security_alerts import log_access_denied_and_check_repeated
 
 settings = get_settings()
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
@@ -62,9 +63,13 @@ def require_project_role(
         ProjectMember.user_id == current_user.id,
     ).first()
     if not membership:
+        log_access_denied_and_check_repeated(db, current_user, f"not a member of project {project_id}")
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Not a member of this project")
     # Step 4: their project_role rank must meet or exceed what the caller required.
     if _ROLE_RANK[membership.project_role] < _ROLE_RANK[min_role]:
+        log_access_denied_and_check_repeated(
+            db, current_user, f"role '{membership.project_role.value}' below required '{min_role.value}' on project {project_id}"
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Requires '{min_role.value}' role or higher in this project",

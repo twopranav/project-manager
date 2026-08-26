@@ -9,6 +9,7 @@ class SecurityAlertOut(BaseModel):
     message: str
     actor_user_id: str
     target_user_id: Optional[str]
+    target_id: Optional[str]
     created_at: datetime
     resolved: bool
     # Allow Pydantic to populate this output schema directly from ORM model attributes.

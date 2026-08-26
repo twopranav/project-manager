@@ -8,7 +8,7 @@ from app.schemas.security_alert import SecurityAlertOut
 from app.api.deps import get_current_user
 from sqlalchemy.exc import IntegrityError
 from app.schemas.user import UserOut, TransferAdminRequest
-from app.core.security_alerts import log_unauthorized_role_change
+from app.core.security_alerts import log_unauthorized_role_change, log_admin_transfer_success
 
 # Create the router that exposes all admin endpoints under the /admin URL prefix.
 router = APIRouter(prefix="/admin", tags=["admin"])
@@ -97,4 +97,6 @@ def transfer_admin(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Admin transfer failed — try again")
 
     db.refresh(target)
+    # Record the successful admin transfer in the security alerts log.
+    log_admin_transfer_success(db=db, actor=current_user, new_admin=target)
     return target

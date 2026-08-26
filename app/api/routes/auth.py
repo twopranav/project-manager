@@ -6,6 +6,7 @@ from app.models.user import User, GlobalRole
 from app.schemas.user import UserCreate, UserOut
 from app.schemas.token import Token
 from app.core.security import hash_password, verify_password, create_access_token
+from app.core.security_alerts import log_failed_login_attempt
 
 # Create the router that exposes authentication endpoints under the /auth URL prefix.
 router = APIRouter(prefix="/auth", tags=["auth"])
@@ -44,8 +45,13 @@ def login(form_data: OAuth2PasswordRequestForm = Depends(), db: Session = Depend
     # OAuth2PasswordRequestForm calls "username" even though email is the chosen identifier
 # Find the account whose email matches the OAuth2 form username field.
     user = db.query(User).filter(User.email == form_data.username).first()
-# Reject the login if wrong credentials without revealing which + raise HTTP 401
     if not user or not verify_password(form_data.password, user.password_hash):
+# Only log when the account actually exists — a bad password against a
+# real account has a valid actor to attach the alert to; a login attempt
+# against an email that isn't registered has no user row to log against,
+# so it's intentionally not recorded here (see log_failed_login_attempt).
+        if user:
+            log_failed_login_attempt(db=db, actor=user)
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect email or password")
 # Create and return a signed access token whose subject identifies the authenticated user.
     access_token = create_access_token(subject=user.id)

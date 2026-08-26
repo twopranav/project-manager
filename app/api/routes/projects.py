@@ -13,6 +13,8 @@ from app.schemas.project import (
     ProjectMemberRoleUpdate, ProjectMemberOut, ProjectStats,
 )
 from app.api.deps import get_current_user, require_project_role
+from app.core.security_alerts import log_project_deleted
+from tests.conftest import project
 
 # Create the router that exposes project endpoints under the /projects URL prefix.
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -186,12 +188,16 @@ def delete_project(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot delete a project that still has tasks — delete its tasks first, or archive it via PATCH instead",
         )
+    # Capture the name before the row is gone — the alert message needs it.
+    project_name = project.name
 # Remove all project-membership records associated with the project.
     db.query(ProjectMember).filter(ProjectMember.project_id == project_id).delete()
 # Select project records for the membership-scoped query.
     db.query(Project).filter(Project.id == project_id).delete()
 # Persist the departure from the project.
     db.commit()
+    # Record the project deletion in the security alerts log.
+    log_project_deleted(db=db, actor=current_user, project_id=project_id, project_name=project_name)
 
 
 @router.get("/{project_id}/members", response_model=List[ProjectMemberOut])

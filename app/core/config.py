@@ -1,4 +1,5 @@
 ﻿from functools import lru_cache
+from typing import Optional
 from pydantic_settings import BaseSettings
 
 # Configuration model that loads required database/auth settings and provides defaults for JWT behavior.
@@ -7,6 +8,18 @@ class Settings(BaseSettings):
     SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    # SMTP settings for security-alert emails. All optional — if SMTP_HOST is
+    # unset, alert emails are skipped (and logged) instead of failing, so
+    # the app still runs fine in dev/test without any mail server configured.
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_USE_TLS: bool = True
+    # Address alert emails are sent "from". Defaults to SMTP_USERNAME if unset.
+    SMTP_FROM_EMAIL: Optional[str] = None
+    # Address(es) that receive security-alert emails, comma-separated for multiple.
+    ALERT_ADMIN_EMAIL: Optional[str] = None
 
     # Tell Pydantic Settings to load environment variables from the .env file.
     class Config:

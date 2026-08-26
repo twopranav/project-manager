@@ -25,6 +25,8 @@ class SecurityAlert(Base):
     actor_user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     # Optional plain string identifying the target, deliberately not a foreign key so invalid target IDs cannot break alert logging.
     target_user_id = Column(String(36), nullable=True)
+    # Optional generic target identifier for alert types whose target isn't a user
+    target_id = Column(String(36), nullable=True)
     # Timestamp recording when the security event was logged.
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     # Boolean indicating whether an administrator has resolved the alert, defaulting to unresolved.
