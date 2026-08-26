@@ -8,6 +8,7 @@ from app.models.project_member import ProjectRole
 from app.models.user import User, GlobalRole
 from app.schemas.comment import CommentCreate, CommentUpdate, CommentOut, CommentTreeOut
 from app.api.deps import get_current_user, require_project_role
+from app.core.security_alerts import log_access_denied_and_check_repeated
 
 # Create the router that exposes comment endpoints under the /comments URL prefix.
 router = APIRouter(prefix="/comments", tags=["comments"])
@@ -151,9 +152,9 @@ def edit_comment(
     is_author = comment.user_id == current_user.id
 # Calculate whether the authenticated user is the site-wide administrator.
     is_admin = current_user.global_role == GlobalRole.admin
-# Allow deletion only to the author or site administrator.
+# Allow editing only to the author or site administrator else raise HTTP 403 + log
     if not (is_author or is_admin):
-# Return HTTP 400 when the reply would cross task boundaries.
+        log_access_denied_and_check_repeated(db, current_user, f"tried to edit comment {comment_id} owned by another user")
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only edit your own comments")
 
 # Replace the stored comment content with the submitted content.
@@ -184,9 +185,9 @@ def delete_comment(
     is_author = comment.user_id == current_user.id
 # Calculate whether the authenticated user is the site-wide administrator.
     is_admin = current_user.global_role == GlobalRole.admin
-# Allow deletion only to the author or site administrator.
+# Allow deletion only to the author or site administrator else raise HTTP 403 + log
     if not (is_author or is_admin):
-# Return HTTP 400 when the reply would cross task boundaries.
+        log_access_denied_and_check_repeated(db, current_user, f"tried to delete comment {comment_id} owned by another user")
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="You can only delete your own comments")
 
 # Mark the comment for deletion from the database.

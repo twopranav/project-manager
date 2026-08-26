@@ -1,7 +1,7 @@
 ````markdown
 # Test suite
 
-A pytest suite covering the API: **109 tests across 8 files**, ~110s locally.
+A pytest suite covering the API: **121 tests across 8 files**, ~110s locally.
 
 ## How it's built
 
@@ -83,6 +83,8 @@ tests/
 ├── test_task_assignment.py
 ├── test_comments.py
 ├── test_admin.py
+├── test_email.py
+├── test_repeated_403.py
 └── test_stats.py
 ```
 
@@ -124,6 +126,7 @@ Every route in every router:
 * Task assignment
 * Comments
 * Admin
+* Stats
 
 The suite also covers the business rules layered on top, including:
 
@@ -134,12 +137,14 @@ The suite also covers the business rules layered on top, including:
 * Task-status history recording
 * Comment tree nesting
 * Unauthorized role-change security-alert logging
+* Repeated-403 detection and cooldown (`test_repeated_403.py`)
+* SMTP alert-email sending, skip-when-unconfigured, and failure-swallowing (`test_email.py`)
 
 ## What's intentionally not covered yet
 
 * **Alembic migrations** — the suite creates tables directly via `Base.metadata.create_all` for speed. If migration coverage is needed, add a separate, slower test that runs `alembic upgrade head` against a scratch database and diffs the resulting schema.
 * **Load/concurrency behavior** — for example, two simultaneous requests racing to become the last-remaining project admin.
 * **Static frontend** (`frontend/index.html`) — this suite is API-only.
-
+* **Email-trigger wiring** — `test_email.py` unit-tests `send_alert_email()` directly, and `test_admin.py`/`test_projects.py`/`test_repeated_403.py` confirm alerts land in the DB, but nothing yet mocks `send_alert_email` to assert it's actually called when an `EMAIL_ENABLED_ALERT_TYPES` alert fires.
 ```
 ```

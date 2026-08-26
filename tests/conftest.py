@@ -41,6 +41,11 @@ os.environ.setdefault("SECRET_KEY", "test-secret-key-do-not-use-in-prod")
 os.environ.setdefault("ALGORITHM", "HS256")
 os.environ.setdefault("ACCESS_TOKEN_EXPIRE_MINUTES", "30")
 
+# Force SMTP off during tests regardless of what's in .env (direct
+# assignment, not setdefault, so it always wins) -- otherwise a local
+# .env with real Mailtrap creds would make every test run fire emails.
+os.environ["SMTP_HOST"] = ""
+
 from fastapi.testclient import TestClient  # noqa: E402
 
 from app.core.security import hash_password  # noqa: E402

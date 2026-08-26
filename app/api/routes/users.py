@@ -5,12 +5,11 @@ from app.models.user import User, GlobalRole
 from app.schemas.user import UserOut, UserUpdate, UserGlobalRoleUpdate
 from app.api.deps import get_current_user
 from app.core.security import hash_password
-from app.core.security_alerts import log_unauthorized_role_change
+from app.core.security_alerts import log_unauthorized_role_change, log_access_denied_and_check_repeated
 from app.models.project_member import ProjectMember, ProjectRole
 
 # Create the router that exposes user endpoints under the /users URL prefix.
 router = APIRouter(prefix="/users", tags=["users"])
-
 
 @router.get("/me", response_model=UserOut)
 # Handle retrieval of the current user profile.
@@ -69,6 +68,7 @@ def lookup_user_by_email(
     ).first() is not None
 
     if not (is_site_admin or has_manager_somewhere):
+        log_access_denied_and_check_repeated(db, current_user, "not a manager/admin anywhere (user lookup)")
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Only project managers or site admins can look up users",

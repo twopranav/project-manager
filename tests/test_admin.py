@@ -81,3 +81,15 @@ def test_transfer_to_nonexistent_user_is_404(client, admin):
 def test_transfer_to_self_is_rejected(client, admin):
     resp = client.post("/admin/transfer-admin", json={"new_admin_user_id": admin["id"]}, headers=admin["headers"])
     assert resp.status_code == 400
+
+
+
+def test_successful_admin_transfer_is_logged(client, admin, user):
+    resp = client.post("/admin/transfer-admin", json={"new_admin_user_id": user["id"]}, headers=admin["headers"])
+    assert resp.status_code == 200
+
+    # The new admin is the only one who can view alerts now.
+    alerts = client.get("/admin/alerts", headers=user["headers"]).json()
+    transfer_alerts = [a for a in alerts if a["alert_type"] == "admin_transfer_success"]
+    assert len(transfer_alerts) == 1
+    assert transfer_alerts[0]["target_user_id"] == user["id"]

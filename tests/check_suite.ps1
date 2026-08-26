@@ -26,7 +26,7 @@ if ($LASTEXITCODE -ne 0) {
     Log "FAIL: Baseline is already failing. Stop here and fix that first - the checks below assume a clean baseline."
     exit 1
 }
-Log "OK - baseline passed. Look for: no failures, no errors, count of tests matches what you expect (109 currently)."
+Log "OK - baseline passed. Look for: no failures, no errors, count of tests matches what you expect (121 currently)."
 
 Section "2/6 - Mutation check: make the suite prove it can fail"
 Log "Now go edit the code (e.g. flip 'other_admins == 0' to 'other_admins != 0' in projects.py)."

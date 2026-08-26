@@ -14,7 +14,6 @@ from app.schemas.project import (
 )
 from app.api.deps import get_current_user, require_project_role
 from app.core.security_alerts import log_project_deleted
-from tests.conftest import project
 
 # Create the router that exposes project endpoints under the /projects URL prefix.
 router = APIRouter(prefix="/projects", tags=["projects"])
@@ -178,7 +177,7 @@ def delete_project(
     current_user: User = Depends(get_current_user),
 ):
 # Require viewer access before exposing project statistics.
-    require_project_role(db, current_user, project_id, ProjectRole.manager)
+    project = require_project_role(db, current_user, project_id, ProjectRole.manager)
 # Check whether the project still contains any tasks.
     has_tasks = db.query(Task.id).filter(Task.project_id == project_id).first()
 # Prevent deletion when tasks still depend on the project.

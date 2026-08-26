@@ -52,6 +52,30 @@ def test_login_with_wrong_password_is_rejected(client):
     assert resp.status_code == 401
 
 
+
+def test_failed_login_for_known_account_is_logged(client, admin):
+    reg = factories.register_user(client, password="mypassword123")
+    resp = client.post("/auth/login", data={"username": reg["email"], "password": "wrongpassword"})
+    assert resp.status_code == 401
+
+    alerts = client.get("/admin/alerts", headers=admin["headers"]).json()
+    login_alerts = [a for a in alerts if a["alert_type"] == "failed_login_attempt"]
+    assert len(login_alerts) == 1
+    assert login_alerts[0]["actor_user_id"] == reg["id"]
+
+
+def test_failed_login_for_unknown_email_is_not_logged(client, admin):
+    resp = client.post(
+        "/auth/login",
+        data={"username": factories.unique_email("nobody"), "password": "irrelevant"},
+    )
+    assert resp.status_code == 401
+
+    alerts = client.get("/admin/alerts", headers=admin["headers"]).json()
+    login_alerts = [a for a in alerts if a["alert_type"] == "failed_login_attempt"]
+    assert len(login_alerts) == 0
+
+
 def test_login_with_unknown_email_is_rejected(client):
     resp = client.post(
         "/auth/login",

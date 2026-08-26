@@ -121,3 +121,33 @@ def test_delete_project_requires_manager(client, user, project, second_user):
     factories.add_member(client, user["headers"], project["id"], second_user["id"], "contributor")
     resp = client.delete(f"/projects/{project['id']}", headers=second_user["headers"])
     assert resp.status_code == 403
+
+# ---------------------------------------------------------------------------
+# deletion alerts
+# ---------------------------------------------------------------------------
+def test_project_deletion_is_logged(client, admin, user):
+    project = factories.create_project(client, user["headers"])
+    resp = client.delete(f"/projects/{project['id']}", headers=user["headers"])
+    assert resp.status_code == 204
+
+    alerts = client.get("/admin/alerts", headers=admin["headers"]).json()
+    deletion_alerts = [a for a in alerts if a["alert_type"] == "project_deleted"]
+    assert len(deletion_alerts) == 1
+    assert deletion_alerts[0]["target_id"] == project["id"]
+    assert deletion_alerts[0]["actor_user_id"] == user["id"]
+
+
+def test_project_deletion_by_manager_is_still_logged(client, admin, user, second_user):
+    """A project manager (not the owner, not the site admin) deleting a
+    project is a fully authorized action -- but the site admin should
+    still be notified, per spec."""
+    project = factories.create_project(client, user["headers"])
+    factories.add_member(client, user["headers"], project["id"], second_user["id"], "manager")
+
+    resp = client.delete(f"/projects/{project['id']}", headers=second_user["headers"])
+    assert resp.status_code == 204
+
+    alerts = client.get("/admin/alerts", headers=admin["headers"]).json()
+    deletion_alerts = [a for a in alerts if a["alert_type"] == "project_deleted"]
+    assert len(deletion_alerts) == 1
+    assert deletion_alerts[0]["actor_user_id"] == second_user["id"]
