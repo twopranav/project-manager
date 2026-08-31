@@ -14,7 +14,6 @@ logger = logging.getLogger("security")
 EMAIL_ENABLED_ALERT_TYPES = {
     "unauthorized_global_role_change",
     "admin_transfer_success",
-    "project_deleted",
     "repeated_403",
 }
 
@@ -103,23 +102,31 @@ def log_admin_transfer_success(db: Session, actor: User, new_admin: User) -> Non
     )
 
 
-def log_project_deleted(db: Session, actor: User, project_id: str, project_name: str) -> None:
+def log_project_deleted(
+    db: Session,
+    actor: User,
+    project_id: str,
+    project_name: str,
+    manager: User | None = None,
+) -> None:
     """
     Record any project deletion, regardless of whether the caller was the
-    project's manager/admin or the site admin — a global admin wants
-    visibility into project deletions even when they're fully authorized.
+    project's manager or the site admin — a global admin wants visibility
+    into project deletions even when they're fully authorized. If a manager
+    is supplied (and isn't the person doing the deleting), they also get a
+    direct email notification separate from the admin alert log.
     """
     message = (
         f"Project deleted: '{project_name}' (id={project_id}) deleted by "
         f"{actor.email} (id={actor.id}, global_role={actor.global_role.value})."
     )
-    log_security_alert(
-        db=db,
-        alert_type="project_deleted",
-        message=message,
-        actor=actor,
-        target_id=project_id,
-    )
+    log_security_alert(db=db, alert_type="project_deleted", message=message, actor=actor, target_id=project_id)
+    if manager is not None:
+        send_alert_email(
+            subject=f"[Project Deleted] {project_name}",
+            body=f"Your project '{project_name}' (id={project_id}) was deleted by {actor.email}.",
+            to=manager.email,
+        )
 
 
 def log_failed_login_attempt(db: Session, actor: User) -> None:

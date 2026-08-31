@@ -8,23 +8,29 @@ logger = logging.getLogger("security")
 settings = get_settings()
 
 
-def send_alert_email(subject: str, body: str) -> None:
+def send_alert_email(subject: str, body: str, to: str | None = None) -> None:
     """
     Best-effort SMTP send for a security-alert notification. Never raises —
     a mail-server hiccup should not break the request that triggered the
     alert (the alert is already durably written to security_alerts before
-    this is ever called). If SMTP isn't configured (no SMTP_HOST or no
-    ALERT_ADMIN_EMAIL), this just logs and returns, so alert-emailing is
-    opt-in via env vars rather than a hard requirement to run the app.
+    this is ever called).
+
+    `to` lets a caller target a specific recipient (e.g. a project's manager)
+    instead of the shared admin alert address. If `to` is omitted, this falls
+    back to ALERT_ADMIN_EMAIL, same as before. If SMTP isn't configured (no
+    SMTP_HOST) or there's no resolved recipient either way, this just logs
+    and returns, so alert-emailing is opt-in via env vars rather than a hard
+    requirement to run the app.
     """
-    if not settings.SMTP_HOST or not settings.ALERT_ADMIN_EMAIL:
+    recipient_field = to or settings.ALERT_ADMIN_EMAIL
+    if not settings.SMTP_HOST or not recipient_field:
         logger.info(
-            "Alert email skipped (SMTP_HOST/ALERT_ADMIN_EMAIL not configured): %s",
+            "Alert email skipped (SMTP_HOST/recipient not configured): %s",
             subject,
         )
         return
 
-    recipients = [addr.strip() for addr in settings.ALERT_ADMIN_EMAIL.split(",") if addr.strip()]
+    recipients = [addr.strip() for addr in recipient_field.split(",") if addr.strip()]
     from_email = settings.SMTP_FROM_EMAIL or settings.SMTP_USERNAME
 
     message = EmailMessage()

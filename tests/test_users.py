@@ -1,6 +1,4 @@
 from tests import factories
-
-
 # ---------------------------------------------------------------------------
 # /users/me
 # ---------------------------------------------------------------------------
@@ -51,8 +49,7 @@ def test_site_admin_can_look_up_any_user(client, admin, user):
 
 
 def test_project_manager_can_look_up_users(client, user, project):
-    """`user` owns `project` and is therefore its project-admin, which
-    outranks manager -- lookup should be allowed."""
+    # `user` owns `project` and is therefore its manager, lookup should be allowed.
     resp = client.get("/users/lookup", params={"email": user["email"]}, headers=user["headers"])
     assert resp.status_code == 200
 
@@ -60,7 +57,6 @@ def test_project_manager_can_look_up_users(client, user, project):
 def test_lookup_of_unknown_email_is_404(client, admin):
     resp = client.get("/users/lookup", params={"email": factories.unique_email("ghost")}, headers=admin["headers"])
     assert resp.status_code == 404
-
 
 # ---------------------------------------------------------------------------
 # PATCH /users/{id}/role

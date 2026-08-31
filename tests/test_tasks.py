@@ -4,12 +4,23 @@ from tests import factories
 # ---------------------------------------------------------------------------
 # create
 # ---------------------------------------------------------------------------
-def test_contributor_can_create_a_task(client, user, project, second_user):
-    factories.add_member(client, user["headers"], project["id"], second_user["id"], "contributor")
-    task = factories.create_task(client, second_user["headers"], project["id"])
+def test_manager_can_create_a_task(client, user, project):
+    """`user` is the project's manager (creator) -- create_task now requires
+    manager, bumped up from the old contributor-level requirement."""
+    task = factories.create_task(client, user["headers"], project["id"])
     assert task["status"] == "todo"
     assert task["priority"] == "medium"
-    assert task["created_by"] == second_user["id"]
+    assert task["created_by"] == user["id"]
+
+
+def test_contributor_cannot_create_a_task(client, user, project, second_user):
+    factories.add_member(client, user["headers"], project["id"], second_user["id"], "contributor")
+    resp = client.post(
+        "/tasks/",
+        json={"project_id": project["id"], "title": "Nope", "description": None, "priority": "low", "due_date": None},
+        headers=second_user["headers"],
+    )
+    assert resp.status_code == 403
 
 
 def test_viewer_cannot_create_a_task(client, user, project, second_user):
@@ -140,7 +151,7 @@ def test_contributor_cannot_change_status_and_title_together(client, user, proje
 
 
 def test_manager_can_change_title_and_priority(client, user, project, second_user):
-    factories.add_member(client, user["headers"], project["id"], second_user["id"], "manager")
+    factories.update_member_role(client, user["headers"], project["id"], second_user["id"], "manager")
     task = factories.create_task(client, user["headers"], project["id"])
 
     resp = client.patch(
@@ -196,6 +207,29 @@ def test_viewer_cannot_delete_a_task(client, user, project, second_user):
     assert resp.status_code == 403
 
 
+def test_contributor_cannot_delete_a_task(client, user, project, second_user):
+    factories.add_member(client, user["headers"], project["id"], second_user["id"], "contributor")
+    task = factories.create_task(client, user["headers"], project["id"])
+    resp = client.delete(f"/tasks/{task['id']}", headers=second_user["headers"])
+    assert resp.status_code == 403
+
+
 def test_get_nonexistent_task_is_404(client, user):
     resp = client.get("/tasks/does-not-exist", headers=user["headers"])
     assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# global admin bypass -- can manage tasks on a project it never joined.
+# ---------------------------------------------------------------------------
+def test_site_admin_can_create_and_delete_tasks_on_a_project_it_never_joined(client, admin, user, project):
+    resp = client.post(
+        "/tasks/",
+        json={"project_id": project["id"], "title": "Admin task", "description": None, "priority": "medium", "due_date": None},
+        headers=admin["headers"],
+    )
+    assert resp.status_code == 201
+    task_id = resp.json()["id"]
+
+    resp = client.delete(f"/tasks/{task_id}", headers=admin["headers"])
+    assert resp.status_code == 204

@@ -64,7 +64,7 @@ def lookup_user_by_email(
     is_site_admin = current_user.global_role == GlobalRole.admin
     has_manager_somewhere = db.query(ProjectMember).filter(
         ProjectMember.user_id == current_user.id,
-        ProjectMember.project_role.in_([ProjectRole.manager, ProjectRole.admin]),
+        ProjectMember.project_role == ProjectRole.manager,
     ).first() is not None
 
     if not (is_site_admin or has_manager_somewhere):

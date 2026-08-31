@@ -18,43 +18,31 @@ from app.core.security_alerts import log_project_deleted
 # Create the router that exposes project endpoints under the /projects URL prefix.
 router = APIRouter(prefix="/projects", tags=["projects"])
 
-# Define a guard that restricts project-admin role changes to a project admin or site admin.
-def _require_admin_or_siteadmin(db: Session, current_user: User, project_id: str) -> None:
-    """Gate for anything that grants/revokes the project-admin tier itself —
-    prevents a manager from promoting themselves (or anyone) to admin."""
-# Look up the caller’s membership in the target project.
-    caller_membership = db.query(ProjectMember).filter(
+# Define a guard that keeps a project from ending up with zero managers.
+# Called any time a membership that WAS manager stops being manager (role
+# change, removal, or self-leave). If another manager already exists,
+# there's nothing to do. Otherwise the site admin auto-inherits the manager
+# slot (creating a membership row for them if they don't already have one)
+# so the project is never left ownerless — until someone reassigns it.
+def _ensure_project_has_manager(db: Session, project_id: str) -> None:
+    still_has_manager = db.query(ProjectMember).filter(
         ProjectMember.project_id == project_id,
-        ProjectMember.user_id == current_user.id,
+        ProjectMember.project_role == ProjectRole.manager,
     ).first()
-# Calculate whether the caller is a project-level administrator.
-    is_project_admin = caller_membership and caller_membership.project_role == ProjectRole.admin
-# Calculate whether the caller is the site-wide administrator.
-    is_site_admin = current_user.global_role == GlobalRole.admin
-# Reject callers who are neither project admins nor site admins.
-    if not (is_project_admin or is_site_admin):
-# Return HTTP 403 when the caller is not a project member.
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="Only a project admin can grant, change, or remove the admin role",
-        )
-
-# Define a guard that prevents a project from losing its final administrator.
-def _guard_last_admin(db: Session, project_id: str, user_id: str) -> None:
-    """Raise if this change would leave the project with zero admins."""
-# Count project admins other than the administrator being removed or demoted.
-    other_admins = db.query(ProjectMember).filter(
+    if still_has_manager:
+        return
+    site_admin = db.query(User).filter(User.global_role == GlobalRole.admin).first()
+    if not site_admin:
+        return
+    admin_membership = db.query(ProjectMember).filter(
         ProjectMember.project_id == project_id,
-        ProjectMember.project_role == ProjectRole.admin,
-        ProjectMember.user_id != user_id,
-    ).count()
-# Block the change when no other project administrator would remain.
-    if other_admins == 0:
-# Return HTTP 400 when the caller is not a project member.
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="This project must keep at least one admin",
-        )
+        ProjectMember.user_id == site_admin.id,
+    ).first()
+    if admin_membership:
+        admin_membership.project_role = ProjectRole.manager
+    else:
+        db.add(ProjectMember(project_id=project_id, user_id=site_admin.id, project_role=ProjectRole.manager))
+    db.commit()
 
 @router.post("/", response_model=ProjectOut, status_code=status.HTTP_201_CREATED)
 # Handle creation of a project by the authenticated user.
@@ -86,7 +74,7 @@ def create_project(
     db.add(ProjectMember(
         project_id=new_project.id,
         user_id=current_user.id,
-        project_role=ProjectRole.admin,  # creator becomes this project's admin
+        project_role=ProjectRole.manager,  # creator becomes this project's manager
     ))
 # Persist the departure from the project.
     db.commit()
@@ -189,14 +177,26 @@ def delete_project(
         )
     # Capture the name before the row is gone — the alert message needs it.
     project_name = project.name
+    # Capture the project's manager before the cascade delete wipes the
+    # membership rows out from under us — log_project_deleted needs their
+    # email afterward. If the manager is the person doing the deleting,
+    # there's no point emailing them about their own action.
+    manager_membership = db.query(ProjectMember).filter(
+        ProjectMember.project_id == project_id,
+        ProjectMember.project_role == ProjectRole.manager,
+    ).first()
+    manager_user = manager_membership.user if manager_membership else None
+    if manager_user is not None and manager_user.id == current_user.id:
+        manager_user = None
 # Remove all project-membership records associated with the project.
     db.query(ProjectMember).filter(ProjectMember.project_id == project_id).delete()
 # Select project records for the membership-scoped query.
     db.query(Project).filter(Project.id == project_id).delete()
 # Persist the departure from the project.
     db.commit()
-    # Record the project deletion in the security alerts log.
-    log_project_deleted(db=db, actor=current_user, project_id=project_id, project_name=project_name)
+    # Record the project deletion in the security alerts log, and notify
+    # the (captured) manager directly if there was one.
+    log_project_deleted(db=db, actor=current_user, project_id=project_id, project_name=project_name, manager=manager_user)
 
 
 @router.get("/{project_id}/members", response_model=List[ProjectMemberOut])
@@ -222,10 +222,15 @@ def add_project_member(
 ):
 # Require viewer access before exposing project statistics.
     require_project_role(db, current_user, project_id, ProjectRole.manager)
-# Apply the stronger admin-role guard when the new member is being made an admin.
-    if member_in.project_role == ProjectRole.admin:
-# Ensure the caller is authorized to alter the admin tier.
-        _require_admin_or_siteadmin(db, current_user, project_id)
+# A project can only ever have one manager. Granting it directly through
+# this endpoint would either silently create a second manager or clobber
+# the existing one without the caller realizing it — force the explicit,
+# visible transfer path instead.
+    if member_in.project_role == ProjectRole.manager:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="This project already has a manager — use PATCH .../members/{user_id} to transfer the role",
+        )
     target_user = db.query(User).filter(User.id == member_in.user_id).first()
     if not target_user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User to add not found")
@@ -274,27 +279,35 @@ def update_project_member_role(
 # Return HTTP 404 when the caller is not a project member.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User is not a member of this project")
 
-# Determine whether the requested change grants or removes project-admin status.
-    touches_admin_tier = (
-        role_update.project_role == ProjectRole.admin
-        or membership.project_role == ProjectRole.admin
-    )
-# Apply the stronger authorization rule whenever the admin tier is involved.
-    if touches_admin_tier:
-# Ensure the caller is authorized to alter the admin tier.
-        _require_admin_or_siteadmin(db, current_user, project_id)
+# Remember the role this member held before the change, so we know
+# afterward whether a manager slot was vacated or newly filled.
+    old_role = membership.project_role
+    new_role = role_update.project_role
 
-# Protect the project when the departing user is an administrator.
-    if membership.project_role == ProjectRole.admin and role_update.project_role != ProjectRole.admin:
-# Prevent the user from leaving if they are the final project admin.
-        _guard_last_admin(db, project_id, user_id)
+# Someone is being promoted INTO the manager slot while it's already held
+# by someone else: that's a transfer, not a promotion, since a project can
+# only have one manager. Demote the current holder to contributor first so
+# the single-manager DB constraint never gets a chance to reject the write.
+    if new_role == ProjectRole.manager and old_role != ProjectRole.manager:
+        current_manager = db.query(ProjectMember).filter(
+            ProjectMember.project_id == project_id,
+            ProjectMember.project_role == ProjectRole.manager,
+        ).first()
+        if current_manager is not None:
+            current_manager.project_role = ProjectRole.contributor
 
 # Store the requested project role on the membership.
-    membership.project_role = role_update.project_role
+    membership.project_role = new_role
 # Persist the departure from the project.
     db.commit()
 # Reload the membership after the database update.
     db.refresh(membership)
+
+# The manager slot was just vacated (this member stepped down or was
+# demoted) — make sure the project doesn't end up without a manager.
+    if old_role == ProjectRole.manager and new_role != ProjectRole.manager:
+        _ensure_project_has_manager(db, project_id)
+
 # Return the updated membership.
     return membership
 
@@ -320,17 +333,19 @@ def remove_project_member(
 # Return HTTP 404 when the caller is not a project member.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User is not a member of this project")
 
-# Protect the project when the departing user is an administrator.
-    if membership.project_role == ProjectRole.admin:
-# Ensure the caller is authorized to alter the admin tier.
-        _require_admin_or_siteadmin(db, current_user, project_id)
-# Prevent the user from leaving if they are the final project admin.
-        _guard_last_admin(db, project_id, user_id)
+# Remember whether the removed member was the project's manager, since
+# that row is about to be deleted and we won't be able to check afterward.
+    was_manager = membership.project_role == ProjectRole.manager
 
 # Mark the caller’s membership for deletion.
     db.delete(membership)
 # Persist the departure from the project.
     db.commit()
+
+# If the manager was just removed, make sure the project doesn't end up
+# without one.
+    if was_manager:
+        _ensure_project_has_manager(db, project_id)
 
 
 @router.delete("/{project_id}/leave", status_code=status.HTTP_204_NO_CONTENT)
@@ -352,15 +367,19 @@ def leave_project(
 # Return HTTP 404 when the caller is not a project member.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="You are not a member of this project")
 
-# Protect the project when the departing user is an administrator.
-    if membership.project_role == ProjectRole.admin:
-# Prevent the user from leaving if they are the final project admin.
-        _guard_last_admin(db, project_id, current_user.id)
+# Remember whether the departing member was the project's manager, since
+# that row is about to be deleted and we won't be able to check afterward.
+    was_manager = membership.project_role == ProjectRole.manager
 
 # Mark the caller’s membership for deletion.
     db.delete(membership)
 # Persist the departure from the project.
     db.commit()
+
+# If the manager just left, make sure the project doesn't end up without
+# one.
+    if was_manager:
+        _ensure_project_has_manager(db, project_id)
 
 
 @router.get("/{project_id}/stats", response_model=ProjectStats)

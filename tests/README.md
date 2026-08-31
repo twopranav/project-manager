@@ -129,10 +129,17 @@ Every route in every router:
 * Stats
 
 The suite also covers the business rules layered on top, including:
-
-* Role-hierarchy gating (`viewer < contributor < manager < admin`)
+* Role-hierarchy gating (`viewer < contributor < manager`), including the
+    manager-only requirements on task create/delete/assign/unassign
 * The contributor-may-only-touch-status rule on task `PATCH`
-* Last-admin protection on both project- and site-level roles
+* Manager transfer via `PATCH .../members/{user_id}` (demotes the prior
+    manager) and rejection of a direct manager add via `POST .../members`
+* Auto-succession of the site admin into a vacated manager slot (on
+    removal, self-leave, or demotion), and the no-site-admin case where the
+    project is simply left without one -- there is no more "last manager"
+    blocking behavior at the project level
+* Last-admin protection at the site (`GlobalRole`) level only
+* Global admin's membership-bypass on projects, members, and tasks
 * Project/task name uniqueness
 * Task-status history recording
 * Comment tree nesting

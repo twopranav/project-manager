@@ -37,7 +37,6 @@ _ROLE_RANK = {
     ProjectRole.viewer: 0,
     ProjectRole.contributor: 1,
     ProjectRole.manager: 2,
-    ProjectRole.admin: 3,
 }
 
 

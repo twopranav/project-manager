@@ -100,6 +100,27 @@ def add_member_raw(client, headers: dict, project_id: str, user_id: str, project
         headers=headers,
     )
 
+def update_member_role(client, headers: dict, project_id: str, user_id: str, project_role: str) -> dict:
+    """PATCH a member's project_role -- the only way to promote someone to
+    manager (add_member rejects project_role="manager" outright). Asserts
+    success; use update_member_role_raw for calls expected to fail."""
+    resp = client.patch(
+        f"/projects/{project_id}/members/{user_id}",
+        json={"project_role": project_role},
+        headers=headers,
+    )
+    assert resp.status_code == 200, resp.text
+    return resp.json()
+
+
+def update_member_role_raw(client, headers: dict, project_id: str, user_id: str, project_role: str):
+    """Same as update_member_role but returns the raw response, for tests
+    that expect the call to fail and want to inspect the status/detail."""
+    return client.patch(
+        f"/projects/{project_id}/members/{user_id}",
+        json={"project_role": project_role},
+        headers=headers,
+    )
 
 # ---------------------------------------------------------------------------
 # Tasks

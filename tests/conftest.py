@@ -167,7 +167,7 @@ def admin(client, db_session):
 # ---------------------------------------------------------------------------
 @pytest.fixture()
 def project(client, user):
-    """A project owned by `user`, who is therefore its project-admin."""
+    #A project owned by `user`, who is therefore its manager.
     return factories.create_project(client, user["headers"])
 
 

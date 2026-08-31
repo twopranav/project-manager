@@ -1,12 +1,11 @@
 ﻿import uuid, enum
 from datetime import datetime, timezone
-from sqlalchemy import Column, String, DateTime, Enum, ForeignKey, UniqueConstraint
+from sqlalchemy import Column, Index, String, DateTime, Enum, ForeignKey, UniqueConstraint
 from sqlalchemy.orm import relationship
 from app.db.base_class import Base
 
 # Enum defining the four project-specific permission levels a member can have.
 class ProjectRole(str, enum.Enum):
-    admin = "admin"
     manager = "manager"
     contributor = "contributor"
     viewer = "viewer"
@@ -15,8 +14,15 @@ class ProjectRole(str, enum.Enum):
 class ProjectMember(Base):
     __tablename__ = "project_members"
     # Enforce at the database level that a user can have only one membership row per project.
-    __table_args__ = (UniqueConstraint("user_id", "project_id", name="uq_user_project"),)
-    # Primary key generated as a UUID string.
+    __table_args__ = (
+        UniqueConstraint("user_id", "project_id", name="uq_user_project"),
+        Index("ix_project_members_project_id_user_id", "project_id", "user_id"),
+        Index(
+            "uq_single_project_manager", "project_id",
+            unique=True,
+            postgresql_where=(Column("project_role") == "manager"),
+        ),
+    )    # Primary key generated as a UUID string.
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     # Required foreign key identifying the project being joined.
     project_id = Column(String(36), ForeignKey("projects.id"), nullable=False)

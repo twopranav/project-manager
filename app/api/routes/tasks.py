@@ -33,14 +33,14 @@ def _get_task_or_404(db: Session, task_id: str) -> Task:
 
 
 @router.post("/", response_model=TaskOut, status_code=status.HTTP_201_CREATED)
-# Handle task creation for a project contributor or higher.
+# Handle task creation for a project manager.
 def create_task(
     task_in: TaskCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-# Require contributor-level access to manage task assignments.
-    require_project_role(db, current_user, task_in.project_id, ProjectRole.contributor)
+# Require manager-level access to create tasks.
+    require_project_role(db, current_user, task_in.project_id, ProjectRole.manager)
 
 # Reject task creation when the title is already used within this project & return 400
     if db.query(Task).filter(Task.project_id == task_in.project_id, Task.title == task_in.title).first():
@@ -98,7 +98,7 @@ def list_tasks_for_project(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
 ):
-# Require contributor-level access to manage task assignments.
+# Require viewer-level access to list tasks.
     require_project_role(db, current_user, project_id, ProjectRole.viewer)
 
 # Start a task query scoped to the requested project.
@@ -152,7 +152,7 @@ def get_task(
 ):
 # Retrieve the task before changing its assignments.
     task = _get_task_or_404(db, task_id)
-# Require contributor-level access to manage task assignments.
+# Require viewer-level access to view a task.
     require_project_role(db, current_user, task.project_id, ProjectRole.viewer)
 # Return the updated task.
     return task
@@ -167,7 +167,7 @@ def get_task_status_history(
 ):
 # Retrieve the task before changing its assignments.
     task = _get_task_or_404(db, task_id)
-# Require contributor-level access to manage task assignments.
+# Require viewer-level access to view a task's history.
     require_project_role(db, current_user, task.project_id, ProjectRole.viewer)
 # Return status-history records ordered from earliest to latest change.
     return (
@@ -201,7 +201,7 @@ def update_task(
     else:
 # Set the minimum required role to manager for title, description, priority, or due-date changes.
         min_role = ProjectRole.manager  # touching title/description/priority/due_date
-# Require contributor-level access to manage task assignments.
+# Require the role determined above to update the task.
     require_project_role(db, current_user, task.project_id, min_role)
 
 # Reject the rename when another task in the same project already uses the requested title & return 400
@@ -239,7 +239,7 @@ def update_task(
 
 
 @router.delete("/{task_id}", status_code=status.HTTP_204_NO_CONTENT)
-# Handle deletion of a task for a contributor or higher.
+# Handle deletion of a task for a project manager.
 def delete_task(
     task_id: str,
     db: Session = Depends(get_db),
@@ -247,8 +247,8 @@ def delete_task(
 ):
 # Retrieve the task before changing its assignments.
     task = _get_task_or_404(db, task_id)
-# Require contributor-level access to manage task assignments.
-    require_project_role(db, current_user, task.project_id, ProjectRole.contributor)
+# Require manager-level access to delete a task.
+    require_project_role(db, current_user, task.project_id, ProjectRole.manager)
 # Remove comments associated with the task first.
     db.query(Comment).filter(Comment.task_id == task_id).delete()
 # Remove task-assignment records associated with the task.
@@ -271,8 +271,8 @@ def assign_user_to_task(
 ):
 # Retrieve the task before changing its assignments.
     task = _get_task_or_404(db, task_id)
-# Require contributor-level access to manage task assignments.
-    require_project_role(db, current_user, task.project_id, ProjectRole.contributor)
+# Require manager-level access to manage task assignments.
+    require_project_role(db, current_user, task.project_id, ProjectRole.manager)
 # Check that the target user is a member of the task’s project.
     assignee_is_member = db.query(ProjectMember).filter(
         ProjectMember.project_id == task.project_id,
@@ -308,8 +308,8 @@ def unassign_user_from_task(
 ):
 # Retrieve the task before changing its assignments.
     task = _get_task_or_404(db, task_id)
-# Require contributor-level access to manage task assignments.
-    require_project_role(db, current_user, task.project_id, ProjectRole.contributor)
+# Require manager-level access to manage task assignments.
+    require_project_role(db, current_user, task.project_id, ProjectRole.manager)
 
 # Look up the specific task-assignment record.
     assignment = db.query(TaskAssignee).filter(
