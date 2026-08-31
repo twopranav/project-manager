@@ -1,8 +1,5 @@
-# app/api/routes/alert_tasks.py
-
 from celery.result import AsyncResult
-from fastapi import APIRouter
-
+from fastapi import APIRouter, Depends, HTTPException, status
 from app.core.celery_app import celery_app
 from app.schemas.alert_task import (
     AlertDispatchAccepted,
@@ -10,24 +7,36 @@ from app.schemas.alert_task import (
     AlertTaskStatus,
 )
 from app.tasks.alerts import send_alert_email_task
+from app.api.deps import get_current_user
+from app.models.user import User, GlobalRole
 
 router = APIRouter(prefix="/alerts", tags=["alerts"])
 
-
 @router.post("/dispatch", response_model=AlertDispatchAccepted, status_code=202)
-def dispatch_alert(payload: AlertDispatchRequest) -> AlertDispatchAccepted:
-    """Queue an alert email for background delivery and return its task id."""
+def dispatch_alert(
+    payload: AlertDispatchRequest,
+    current_user: User = Depends(get_current_user),
+) -> AlertDispatchAccepted:
+# Queue an alert email for background delivery and return its task id.
+    to = payload.to
+    if to is not None and current_user.global_role != GlobalRole.admin:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only the site admin can target a custom recipient",
+        )
     task = send_alert_email_task.delay(
         subject=payload.subject,
         body=payload.body,
-        to=payload.to,
+        to=to,
     )
     return AlertDispatchAccepted(task_id=task.id)
 
-
 @router.get("/dispatch/{task_id}", response_model=AlertTaskStatus)
-def get_alert_status(task_id: str) -> AlertTaskStatus:
-    """Poll the status/result of a previously submitted alert task."""
+def get_alert_status(
+    task_id: str,
+    current_user: User = Depends(get_current_user),
+) -> AlertTaskStatus:
+# Poll the status/result of a previously submitted alert task.
     result = AsyncResult(task_id, app=celery_app)
     data = None
     if result.ready():

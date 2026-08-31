@@ -84,11 +84,9 @@ def summarize(label: str, values: list[float]) -> str:
     if not values:
         return f"{label}: no data"
     values_sorted = sorted(values)
-
     def pct(p: float) -> float:
         idx = min(int(len(values_sorted) * p), len(values_sorted) - 1)
         return values_sorted[idx]
-
     return (
         f"{label}: min={min(values):.3f}s  p50={pct(0.50):.3f}s  "
         f"p95={pct(0.95):.3f}s  p99={pct(0.99):.3f}s  max={max(values):.3f}s  "
@@ -100,24 +98,19 @@ async def run_loader(n: int, api_base: str, poll_interval: float, timeout: float
     async with httpx.AsyncClient(limits=limits, timeout=timeout) as client:
         print(f"Submitting {n} concurrent alert-dispatch requests to {api_base} ...")
         batch_start = time.monotonic()
-
         submit_results = await asyncio.gather(*[submit_one(client, i, api_base) for i in range(n)])
         submit_wall_time = time.monotonic() - batch_start
-
         ok_submits = [r for r in submit_results if r.task_id is not None]
         failed_submits = [r for r in submit_results if r.task_id is None]
-
         print(
             f"Submitted {len(ok_submits)}/{n} successfully in {submit_wall_time:.3f}s "
             f"({len(ok_submits) / submit_wall_time:.1f} req/s)"
         )
         if failed_submits:
             print(f"{len(failed_submits)} submit(s) failed outright, e.g.: {failed_submits[0].error}")
-
         if not ok_submits:
             print("Nothing to poll — all submits failed. Check that FastAPI/Redis/Celery are all running.")
             return
-
         print(f"Polling {len(ok_submits)} task(s) for completion (timeout={timeout}s each) ...")
         completion_results = await asyncio.gather(
             *[
@@ -125,12 +118,10 @@ async def run_loader(n: int, api_base: str, poll_interval: float, timeout: float
                 for r in ok_submits
             ]
         )
-
         succeeded = [r for r in completion_results if r.status == "SUCCESS" and not r.timed_out]
         task_failed = [r for r in completion_results if r.status == "FAILURE" and not r.timed_out]
         timed_out = [r for r in completion_results if r.timed_out]
         total_wall_time = time.monotonic() - batch_start
-
         print()
         print("=" * 60)
         print("LOAD TEST RESULTS")
@@ -146,7 +137,6 @@ async def run_loader(n: int, api_base: str, poll_interval: float, timeout: float
         print()
         print(f"Total wall time:            {total_wall_time:.3f}s")
         print(f"Effective throughput:       {len(succeeded) / total_wall_time:.2f} completed alerts/s")
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Load test the alert-dispatch pipeline.")
