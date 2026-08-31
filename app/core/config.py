@@ -24,6 +24,8 @@ class Settings(BaseSettings):
     DB_MAX_OVERFLOW: int = 20
     DB_POOL_TIMEOUT: int = 30
     DB_POOL_RECYCLE: int = 1800
+    # Redis URL for Celery broker and result backend. Defaults to a local Redis instance if unset.
+    REDIS_URL: str = "redis://localhost:6379/0"
 
     # Tell Pydantic Settings to load environment variables from the .env file.
     class Config:

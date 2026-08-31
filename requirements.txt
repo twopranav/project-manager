@@ -14,3 +14,6 @@ email-validator
 pytest>=8.0
 httpx>=0.27  
 pytest-randomly
+celery[redis]
+gevent
+requests
