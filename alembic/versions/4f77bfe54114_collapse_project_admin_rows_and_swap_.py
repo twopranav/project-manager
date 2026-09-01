@@ -22,14 +22,6 @@ def upgrade() -> None:
     """Upgrade schema."""
     conn = op.get_bind()
 
-    # --- Drop the two indexes from 8bcf5cb7d70e before touching the column
-    # type. Both were built against the current (still-4-value) enum; safer
-    # to drop and recreate them fresh against the new 3-value type than to
-    # rely on Postgres correctly rebuilding a partial index's literal
-    # predicate across a full type swap. ---
-    op.drop_index('uq_single_project_manager', table_name='project_members', postgresql_where=sa.text("project_role = 'manager'"))
-    op.drop_index('ix_project_members_project_id_user_id', table_name='project_members')
-
     # --- Data collapse: must run before the enum swap below, since a row
     # still holding 'admin' can't be cast into a type that no longer has
     # that value. For each project with any 'admin' row, promote the

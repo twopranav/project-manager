@@ -51,7 +51,6 @@ def create_project(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-
 # Reject project creation when the name is already used by another project & return 400
     if db.query(Project).filter(Project.name == project_in.name).first():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="A project with this name already exists")
@@ -268,26 +267,19 @@ def update_project_member_role(
 ):
 # Require viewer access before exposing project statistics.
     require_project_role(db, current_user, project_id, ProjectRole.manager)
-
 # Look up the current user’s membership in the project.
     membership = db.query(ProjectMember).filter(
         ProjectMember.project_id == project_id,
         ProjectMember.user_id == user_id,
     ).first()
-# Check whether the current user is actually a member.
+# Check whether the current user is actually a member else return HTTP 404.
     if not membership:
-# Return HTTP 404 when the caller is not a project member.
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User is not a member of this project")
-
-# Remember the role this member held before the change, so we know
-# afterward whether a manager slot was vacated or newly filled.
+# Remember the role this member held before the change, so we know afterward whether a manager slot was vacated or newly filled.
     old_role = membership.project_role
     new_role = role_update.project_role
-
-# Someone is being promoted INTO the manager slot while it's already held
-# by someone else: that's a transfer, not a promotion, since a project can
-# only have one manager. Demote the current holder to contributor first so
-# the single-manager DB constraint never gets a chance to reject the write.
+# Someone is being promoted INTO the manager slot while it's already held by someone else: 
+# that's a transfer and since a project can only have one manager. Demote the current holder to contributor
     if new_role == ProjectRole.manager and old_role != ProjectRole.manager:
         current_manager = db.query(ProjectMember).filter(
             ProjectMember.project_id == project_id,
@@ -295,19 +287,17 @@ def update_project_member_role(
         ).first()
         if current_manager is not None:
             current_manager.project_role = ProjectRole.contributor
-
+            db.flush()
 # Store the requested project role on the membership.
     membership.project_role = new_role
 # Persist the departure from the project.
     db.commit()
 # Reload the membership after the database update.
     db.refresh(membership)
-
 # The manager slot was just vacated (this member stepped down or was
 # demoted) — make sure the project doesn't end up without a manager.
     if old_role == ProjectRole.manager and new_role != ProjectRole.manager:
         _ensure_project_has_manager(db, project_id)
-
 # Return the updated membership.
     return membership
 

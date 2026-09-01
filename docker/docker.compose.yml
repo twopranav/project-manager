@@ -1,0 +1,61 @@
+version: '3.8'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: project_db
+    environment:
+      POSTGRES_DB: task_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgrespassword
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    container_name: project_redis
+    ports:
+      - "6379:6379"
+
+  web:
+    build:
+      context: ..                         # Point build context up to project root
+      dockerfile: docker/Dockerfile      # Relative to build context
+    container_name: project_api
+    env_file:
+      - ../.env                          # Relative to compose file location
+    environment:
+      POSTGRES_SERVER: db
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://postgres:postgrespassword@db:5432/task_db
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../:/app                         # Mount root directory into /app container
+    depends_on:
+      - db
+      - redis
+
+  worker:
+    build:
+      context: ..                         # Point build context up to project root
+      dockerfile: docker/Dockerfile
+    container_name: project_worker
+    command: python -m celery -A app.core.celery_app worker --loglevel=info --pool=gevent --concurrency=100
+    env_file:
+      - ../.env
+    environment:
+      POSTGRES_SERVER: db
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://postgres:postgrespassword@db:5432/task_db
+      IS_CELERY_WORKER: "1"
+    volumes:
+      - ../:/app
+    depends_on:
+      - db
+      - redis
+
+volumes:
+  postgres_data:

@@ -6,8 +6,10 @@
 # entirely since it's a cooperative, single-process pool, which also happens
 # to be the right tool for I/O-bound work like outbound SMTP/webhook calls.
 
-import gevent.monkey
-gevent.monkey.patch_all()
+import os
+if os.environ.get("IS_CELERY_WORKER") == "1":
+    import gevent.monkey
+    gevent.monkey.patch_all()
 from celery import Celery
 from app.core.config import get_settings
 

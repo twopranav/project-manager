@@ -1,4 +1,5 @@
 from tests import factories
+from tests.conftest import second_user
 
 
 # ---------------------------------------------------------------------------
@@ -148,12 +149,12 @@ def test_contributor_cannot_change_status_and_title_together(client, user, proje
         headers=second_user["headers"],
     )
     assert resp.status_code == 403
-
+    
 
 def test_manager_can_change_title_and_priority(client, user, project, second_user):
+    factories.add_member(client, user["headers"], project["id"], second_user["id"], "contributor")
     factories.update_member_role(client, user["headers"], project["id"], second_user["id"], "manager")
-    task = factories.create_task(client, user["headers"], project["id"])
-
+    task = factories.create_task(client, second_user["headers"], project["id"])
     resp = client.patch(
         f"/tasks/{task['id']}",
         json={"title": "Renamed", "priority": "urgent"},
