@@ -14,7 +14,7 @@ class TaskAssignee(Base):
     # Required foreign key identifying the assigned task.
     task_id = Column(String(36), ForeignKey("tasks.id"), nullable=False)
     # Required foreign key identifying the assigned user.
-    user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     # Timestamp recording when the assignment was created.
     assigned_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     # ORM relationship connecting this assignment to its Task.

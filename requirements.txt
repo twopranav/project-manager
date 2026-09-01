@@ -17,3 +17,4 @@ pytest-randomly
 celery[redis]
 gevent
 requests
+locust

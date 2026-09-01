@@ -11,7 +11,7 @@ class TaskStatusHistory(Base):
     # Primary key generated as a UUID string.
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     # Required foreign key identifying the task whose status changed.
-    task_id = Column(String(36), ForeignKey("tasks.id"), nullable=False)
+    task_id = Column(String(36), ForeignKey("tasks.id"), nullable=False, index=True)
     # Required foreign key identifying the user who performed the status change.
     changed_by = Column(String(36), ForeignKey("users.id"), nullable=False)
     # Previous task status, nullable because a newly created task has no previous status.

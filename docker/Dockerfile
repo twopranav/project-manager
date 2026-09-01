@@ -20,4 +20,4 @@ COPY . .
 RUN chmod +x /app/docker/docker-entrypoint.sh
 ENTRYPOINT ["/app/docker/docker-entrypoint.sh"]
 
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "12"]

@@ -10,7 +10,7 @@ class Comment(Base):
     # Primary key generated as a UUID string.
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     # Required foreign key linking this comment to the task it belongs to.
-    task_id = Column(String(36), ForeignKey("tasks.id"), nullable=False)
+    task_id = Column(String(36), ForeignKey("tasks.id"), nullable=False, index=True)
     # Required foreign key identifying the user who wrote the comment.
     user_id = Column(String(36), ForeignKey("users.id"), nullable=False)
     # Optional self-referencing foreign key that makes this comment a reply to another comment.

@@ -1,2 +1,59 @@
-﻿body.json
+﻿# --- Secrets / environment ---
 .env
+.env.*
+!.env.example
+body.json
+
+# --- Python ---
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+ENV/
+
+# --- Packaging / build ---
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# --- Test / coverage / cache ---
+.pytest_cache/
+.cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.mypy_cache/
+.ruff_cache/
+
+# --- Databases / local data ---
+*.db
+*.sqlite3
+dev.db
+*.sql
+!alembic/**/*.sql
+
+# --- Logs ---
+*.log
+
+# --- Celery ---
+celerybeat-schedule
+celerybeat.pid
+
+# --- IDE / editor ---
+.vscode/
+.idea/
+*.swp
+
+# --- OS junk ---
+.DS_Store
+Thumbs.db
+
+# --- Docker local overrides ---
+docker-compose.override.yml

@@ -21,7 +21,7 @@ class Project(Base):
     # Optional longer project description.
     description = Column(Text)
     # Required foreign key identifying the user who owns the project.
-    owner_id = Column(String(36), ForeignKey("users.id"), nullable=False)
+    owner_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
     # Required project lifecycle status, defaulting to active.
     status = Column(Enum(ProjectStatus), default=ProjectStatus.active, nullable=False)
     # Timestamp recording when the project was created.

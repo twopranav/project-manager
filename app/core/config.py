@@ -20,8 +20,9 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: Optional[str] = None
     # Address(es) that receive security-alert emails, comma-separated for multiple.
     ALERT_ADMIN_EMAIL: Optional[str] = None
-    DB_POOL_SIZE: int = 10
-    DB_MAX_OVERFLOW: int = 20
+    # Pool for each of the 12 workers initialized in Dokcerfile
+    DB_POOL_SIZE: int = 3
+    DB_MAX_OVERFLOW: int = 5
     DB_POOL_TIMEOUT: int = 30
     DB_POOL_RECYCLE: int = 1800
     # Redis URL for Celery broker and result backend. Defaults to a local Redis instance if unset.
