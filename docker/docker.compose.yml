@@ -1,5 +1,4 @@
 version: '3.8'
-# docker compose -f docker/docker.compose.yml up -d --build
 
 services:
   db:
@@ -20,6 +19,13 @@ services:
     ports:
       - "6379:6379"
 
+  mailpit:
+    image: axllent/mailpit:latest
+    container_name: project_mailpit
+    ports:
+      - "8025:8025"   # web UI — view caught emails at http://localhost:8025
+      - "1025:1025"   # SMTP port your app sends to
+
   web:
     build:
       context: ..                         # Point build context up to project root
@@ -31,6 +37,13 @@ services:
       POSTGRES_SERVER: db
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql://postgres:postgrespassword@db:5432/task_db
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_USE_TLS: "false"
+      SMTP_USERNAME: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM_EMAIL: alerts@taskhub.test
+      ALERT_ADMIN_EMAIL: admin@taskhub.test
     ports:
       - "8000:8000"
     volumes:
@@ -38,6 +51,7 @@ services:
     depends_on:
       - db
       - redis
+      - mailpit
 
   worker:
     build:
@@ -52,11 +66,19 @@ services:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql://postgres:postgrespassword@db:5432/task_db
       IS_CELERY_WORKER: "1"
+      SMTP_HOST: mailpit
+      SMTP_PORT: 1025
+      SMTP_USE_TLS: "false"
+      SMTP_USERNAME: ""
+      SMTP_PASSWORD: ""
+      SMTP_FROM_EMAIL: alerts@taskhub.test
+      ALERT_ADMIN_EMAIL: admin@taskhub.test
     volumes:
       - ../:/app
     depends_on:
       - db
       - redis
+      - mailpit
 
 volumes:
   postgres_data:

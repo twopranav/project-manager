@@ -1,7 +1,7 @@
 ````markdown
 # Test suite
 
-A pytest suite covering the API: **139 tests across 11 files**, ~110s locally.
+A pytest suite covering the API: **142 tests across 12 files**, ~110s locally.
 
 ## How it's built
 
@@ -14,6 +14,8 @@ Every **test function** gets its own isolated database transaction and pulls in 
 ## What it needs
 
 A real **Postgres** instance (not SQLite — the schema uses a Postgres-only partial unique index to enforce a single global admin; see `app/models/user.py`).
+
+A real **Redis** instance too — `repeated_403`/`repeated_failed_login` detection counts denials/failures per actor via `redis_client.incr()`, and alert-email cooldowns use a Redis SETNX lock (see `app/core/security_alerts.py`). Defaults to `redis://localhost:6379/0` (same as the app itself); the easiest way to get one locally is the `redis` service already in `docker/docker.compose.yml`, exposed on `6379` for the host to reach.
 
 Point the suite at a **throwaway database** — its tables are dropped and recreated every run, so never point this at anything you care about.
 
@@ -85,7 +87,8 @@ tests/
 ├── test_admin.py
 ├── test_email.py
 ├── test_repeated_403.py
-└── test_stats.py
+├── test_stats.py
+└── test_alert_dispatch.py     # Real Celery + SMTP path (see below)
 ```
 
 ## Adding a test for a new feature
@@ -146,12 +149,26 @@ The suite also covers the business rules layered on top, including:
 * Unauthorized role-change security-alert logging
 * Repeated-403 detection and cooldown (`test_repeated_403.py`)
 * SMTP alert-email sending, skip-when-unconfigured, and failure-swallowing (`test_email.py`)
+* **The real Celery + SMTP dispatch path** (`test_alert_dispatch.py`) — unlike `test_email.py`, which unit-tests `send_alert_email()` directly, this file drives `POST /alerts/dispatch` through the actual Celery task (run synchronously via `task_always_eager` for the test, no broker/worker needed) and asserts on real `smtplib.SMTP` calls. Includes a characterization test for a real bug found during manual testing: an SMTP auth failure is swallowed silently, so the task/endpoint report `SUCCESS` even though nothing was delivered — see that test's docstring for the full story.
+
+## Celery task testing notes
+
+`test_alert_dispatch.py` sets `task_always_eager=True` (tasks run in-process, synchronously) *and* `task_store_eager_result=True` (Celery doesn't store eager-task results in the backend by default, which makes `AsyncResult(task_id)` — what `GET /alerts/dispatch/{task_id}` uses — report `PENDING` forever otherwise). If you add a new test that dispatches a Celery task and checks its status via that endpoint, use the `celery_eager` fixture from that file; it handles both settings and restores them afterward.
 
 ## What's intentionally not covered yet
 
 * **Alembic migrations** — the suite creates tables directly via `Base.metadata.create_all` for speed. If migration coverage is needed, add a separate, slower test that runs `alembic upgrade head` against a scratch database and diffs the resulting schema.
 * **Load/concurrency behavior** — for example, two simultaneous requests racing to become the last-remaining project admin.
 * **Static frontend** (`frontend/index.html`) — this suite is API-only.
-* **Email-trigger wiring** — `test_email.py` unit-tests `send_alert_email()` directly, and `test_admin.py`/`test_projects.py`/`test_repeated_403.py` confirm alerts land in the DB, but nothing yet mocks `send_alert_email` to assert it's actually called when an `EMAIL_ENABLED_ALERT_TYPES` alert fires.
+
+## Load testing (separate from this suite)
+
+`locustfile.py` at the project root is a **Locust** load test, not a pytest test — it isn't run by `pytest` and isn't part of the "142 tests." It simulates concurrent users hitting the live API (register → login → create project → mixed read/write traffic) to check throughput and latency under load, not correctness. Run it against a live instance:
+
+```bash
+locust -f locustfile.py --host http://localhost:8000
+```
+
+See the root `README.md` for details.
 ```
 ```

@@ -130,7 +130,7 @@ Authorization: Bearer <token>
 
 ## Testing
 
-139 pytest tests across 11 files cover every route and the business rules layered on top (role hierarchy, admin succession, uniqueness constraints, alerting, etc.). Requires a throwaway Postgres database — see [`tests/README.md`](tests/README.md) for setup and running instructions.
+142 pytest tests across 12 files cover every route and the business rules layered on top (role hierarchy, admin succession, uniqueness constraints, alerting, etc.), including the real Celery/SMTP dispatch path. Requires a throwaway Postgres database and a Redis instance — see [`tests/README.md`](tests/README.md) for setup and running instructions.
 
 ## Project Structure
 
