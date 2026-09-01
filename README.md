@@ -12,11 +12,13 @@ Create projects, manage members and roles, assign tasks, track progress with sta
 - Task creation, multi-user assignment, and status tracking (`todo → in_progress → in_review → done`, plus `blocked`)
 - Full task status history
 - Comments with nested replies
+- Background email alerts via **Celery + Redis** — SMTP sends run on a worker, not the request thread (`POST /alerts/dispatch`, `GET /alerts/dispatch/{task_id}` to poll status)
+- Security event logging & abuse detection — unauthorized role changes, repeated 403s, and repeated failed logins are logged to `security_alerts` and rate-limited/deduped via Redis, with email alerts for the actionable ones
 - Auto-generated Swagger / ReDoc docs
 
 ## Tech Stack
 
-FastAPI · PostgreSQL · SQLAlchemy · Alembic · Pydantic · JWT (OAuth2 Bearer) · Uvicorn
+FastAPI · PostgreSQL · SQLAlchemy · Alembic · Pydantic · JWT (OAuth2 Bearer) · Celery · Redis · Uvicorn · Docker
 
 ## Quickstart
 
@@ -37,6 +39,16 @@ DATABASE_URL=postgresql://postgres:YOUR_PASSWORD@localhost:5432/taskdb
 SECRET_KEY=YOUR_SECRET_KEY
 ALGORITHM=HS256
 ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+REDIS_URL=redis://localhost:6379/0
+
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USERNAME=YOUR_SMTP_USERNAME
+SMTP_PASSWORD=YOUR_SMTP_PASSWORD
+SMTP_USE_TLS=true
+SMTP_FROM_EMAIL=alerts@example.com
+ALERT_ADMIN_EMAIL=admin@example.com
 ```
 
 Run migrations and start the server:
@@ -47,6 +59,44 @@ uvicorn app.main:app --reload
 ```
 
 Open **http://127.0.0.1:8000/docs** for interactive Swagger docs.
+
+### Docker
+
+Alternatively, run the whole stack (API + Postgres + Redis + Celery worker) with Docker:
+
+```bash
+docker compose -f docker/docker.compose.yml up -d --build
+```
+
+The web container waits for Postgres to come online and runs `alembic upgrade head` automatically before starting Uvicorn.
+
+## Background Jobs (Celery + Redis)
+
+Alert emails are dispatched asynchronously instead of blocking the request thread:
+
+```
+POST /alerts/dispatch          → queues an email, returns a task_id (202 Accepted)
+GET  /alerts/dispatch/{task_id} → poll status/result of that task
+```
+
+Redis also backs request-path rate limiting/dedup — e.g. repeated-403 detection counts denials per actor in a rolling window before firing a single alert, instead of one email per denial.
+
+To run a worker locally (outside Docker):
+
+```bash
+celery -A app.core.celery_app.celery_app worker --loglevel=info
+```
+
+## Load Testing
+
+A [Locust](https://locust.io/) file is included for stress-testing the API:
+
+```bash
+# with the stack running (e.g. via docker compose)
+locust -f locustfile.py --host http://localhost:8000
+```
+
+Then open **http://localhost:8089** to set concurrent users and spawn rate. Simulated users register, log in, create a project, and hit a mix of read/write endpoints (listing projects, checking stats, creating tasks) to exercise the API under load.
 
 ## Auth Flow
 
@@ -72,7 +122,25 @@ Authorization: Bearer <token>
 | History | `GET /tasks/{id}/history` |
 | Comments | `POST /comments/`, `GET /comments/task/{id}`, `PATCH/DELETE /comments/{id}` |
 | Stats | `GET /projects/{id}/stats` |
+| Alerts | `POST /alerts/dispatch`, `GET /alerts/dispatch/{task_id}` |
 
 ## Testing
 
-Refer to the README.md file within the `tests` file
+139 pytest tests across 11 files cover every route and the business rules layered on top (role hierarchy, admin succession, uniqueness constraints, alerting, etc.). Requires a throwaway Postgres database — see [`tests/README.md`](tests/README.md) for setup and running instructions.
+
+## Project Structure
+
+```text
+app/
+├── api/routes/       # FastAPI routers (auth, users, projects, tasks, comments, admin, alert_tasks)
+├── core/              # Config, security, email, Celery app, Redis client, security-alert logic
+├── db/                # Engine/session setup, declarative base
+├── models/            # SQLAlchemy models
+├── schemas/           # Pydantic request/response schemas
+├── scripts/           # One-off scripts (e.g. bootstrap_admin)
+└── tasks/             # Celery tasks (background email dispatch)
+alembic/                # DB migrations
+tests/                  # Pytest suite (see tests/README.md)
+docker/                 # Dockerfile, entrypoint, compose file (API + Postgres + Redis)
+locustfile.py           # Load test (see Load Testing above)
+```

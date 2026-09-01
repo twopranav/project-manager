@@ -1,7 +1,7 @@
 ````markdown
 # Test suite
 
-A pytest suite covering the API: **121 tests across 8 files**, ~110s locally.
+A pytest suite covering the API: **139 tests across 11 files**, ~110s locally.
 
 ## How it's built
 
