@@ -12,8 +12,10 @@ Create projects, manage members and roles, assign tasks, track progress with sta
 - Task creation, multi-user assignment, and status tracking (`todo → in_progress → in_review → done`, plus `blocked`)
 - Full task status history
 - Comments with nested replies
-- Background email alerts via **Celery + Redis** — SMTP sends run on a worker, not the request thread (`POST /alerts/dispatch`, `GET /alerts/dispatch/{task_id}` to poll status)
+- **Async task queue (Celery + Redis)** — background job processing so slow operations (like SMTP sends) don't block API requests
+- Background email alerts dispatched through the queue — SMTP sends run on a worker, not the request thread (`POST /alerts/dispatch`, `GET /alerts/dispatch/{task_id}` to poll status)
 - Security event logging & abuse detection — unauthorized role changes, repeated 403s, and repeated failed logins are logged to `security_alerts` and rate-limited/deduped via Redis, with email alerts for the actionable ones
+- **Load/stress tested** — a Locust load test (`locustfile.py`) simulates concurrent users against the live API; the app has held up well locally at **600 concurrent simulated users**
 - Auto-generated Swagger / ReDoc docs
 
 ## Tech Stack
@@ -97,6 +99,8 @@ locust -f locustfile.py --host http://localhost:8000
 ```
 
 Then open **http://localhost:8089** to set concurrent users and spawn rate. Simulated users register, log in, create a project, and hit a mix of read/write endpoints (listing projects, checking stats, creating tasks) to exercise the API under load.
+
+Locally, the app has stayed stable at **600 concurrent simulated users** via Locust.
 
 ## Auth Flow
 
