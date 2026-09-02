@@ -1,0 +1,98 @@
+📁 TaskHub
+├── 📁 alembic
+│   ├── 📁 versions
+│   │   ├── 📄 3450982e0e2d_add_security_alerts.py
+│   │   ├── 📄 4e6a826265f7_add_uniqueness_constraints.py
+│   │   ├── 📄 4f77bfe54114_collapse_project_admin_rows_and_swap_.py
+│   │   ├── 📄 66a78ea09ff1_add_missing_fk_indexes.py
+│   │   ├── 📄 7f01db2866d0_initial_tables.py
+│   │   ├── 📄 860854fa6007_enforce_single_global_admin.py
+│   │   ├── 📄 8bcf5cb7d70e_fixed_roles_and_added_a_pooler.py
+│   │   └── 📄 cc87caec65c7_constraints_added.py
+│   ├── 📄 env.py
+│   └── 📄 script.py.mako
+├── 📁 app
+│   ├── 📁 api
+│   │   ├── 📁 routes
+│   │   │   ├── 📄 __init__.py
+│   │   │   ├── 📄 admin.py
+│   │   │   ├── 📄 alert_tasks.py
+│   │   │   ├── 📄 auth.py
+│   │   │   ├── 📄 comments.py
+│   │   │   ├── 📄 projects.py
+│   │   │   ├── 📄 tasks.py
+│   │   │   └── 📄 users.py
+│   │   ├── 📄 __init__.py
+│   │   └── 📄 deps.py
+│   ├── 📁 core
+│   │   ├── 📄 __init__.py
+│   │   ├── 📄 celery_app.py
+│   │   ├── 📄 config.py
+│   │   ├── 📄 email.py
+│   │   ├── 📄 redis_client.py
+│   │   ├── 📄 security.py
+│   │   └── 📄 security_alerts.py
+│   ├── 📁 db
+│   │   ├── 📄 __init__.py
+│   │   ├── 📄 base_class.py
+│   │   └── 📄 session.py
+│   ├── 📁 models
+│   │   ├── 📄 __init__.py
+│   │   ├── 📄 comment.py
+│   │   ├── 📄 project.py
+│   │   ├── 📄 project_member.py
+│   │   ├── 📄 security_alert.py
+│   │   ├── 📄 task.py
+│   │   ├── 📄 task_assignee.py
+│   │   ├── 📄 task_status_history.py
+│   │   └── 📄 user.py
+│   ├── 📁 schemas
+│   │   ├── 📄 __init__.py
+│   │   ├── 📄 alert_task.py
+│   │   ├── 📄 comment.py
+│   │   ├── 📄 project.py
+│   │   ├── 📄 security_alert.py
+│   │   ├── 📄 task.py
+│   │   ├── 📄 token.py
+│   │   └── 📄 user.py
+│   ├── 📁 scripts
+│   │   ├── 📄 __init__.py
+│   │   └── 📄 bootstrap_admin.py
+│   ├── 📁 tasks
+│   │   ├── 📄 __init__.py
+│   │   └── 📄 alerts.py
+│   ├── 📄 .gitignore
+│   ├── 📄 __init__.py
+│   └── 📄 main.py
+├── 📁 docker
+│   ├── 📄 Dockerfile
+│   ├── 📄 docker-entrypoint.sh
+│   └── 📄 docker.compose.yml
+├── 📁 tests
+│   ├── 📄 README.md
+│   ├── 📄 __init__.py
+│   ├── 📄 check_suite.ps1
+│   ├── 📄 conftest.py
+│   ├── 📄 factories.py
+│   ├── 📄 test_admin.py
+│   ├── 📄 test_alert_dispatch.py
+│   ├── 📄 test_auth.py
+│   ├── 📄 test_comments.py
+│   ├── 📄 test_email.py
+│   ├── 📄 test_project_members.py
+│   ├── 📄 test_projects.py
+│   ├── 📄 test_repeated_403.py
+│   ├── 📄 test_stats.py
+│   ├── 📄 test_task_assignment.py
+│   ├── 📄 test_tasks.py
+│   └── 📄 test_users.py
+├── 📄 .env
+├── 📄 .gitignore
+├── 📄 README.md
+├── 📄 alembic.ini
+├── 📄 client.py
+├── 📄 er-diagram.md
+├── 📄 locustfile.py
+├── 📄 project_members_backup.sql
+├── 📄 pytest.ini
+└── 📄 requirements.txt
